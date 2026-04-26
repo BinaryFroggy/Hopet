@@ -1,0 +1,29 @@
+import Foundation
+
+public enum HookDoctor {
+    public static func run(installer: HookInstaller) -> String {
+        var lines: [String] = []
+        lines.append("=== Hopet Doctor ===")
+
+        // Paths
+        lines.append("home dir: \(HopetPaths.home.path)")
+        for url in [HopetPaths.bin, HopetPaths.run, HopetPaths.state, HopetPaths.themes, HopetPaths.logs] {
+            let exists = FileManager.default.fileExists(atPath: url.path)
+            lines.append("\(exists ? "✓" : "✗") \(url.path)")
+        }
+
+        // Socket
+        let sockExists = FileManager.default.fileExists(atPath: HopetPaths.socket.path)
+        lines.append("\(sockExists ? "✓" : "✗") socket: \(HopetPaths.socket.path)")
+
+        // Emit binary
+        let emitExists = FileManager.default.fileExists(atPath: HopetPaths.emitBinary.path)
+        lines.append("\(emitExists ? "✓" : "✗") hopet-emit: \(HopetPaths.emitBinary.path)")
+
+        // Tools
+        lines.append("Claude hooks installed: \(installer.isInstalled(.claudeCode) ? "yes" : "no")")
+        lines.append("Codex notify installed:  \(installer.isInstalled(.codex)      ? "yes" : "no")")
+
+        return lines.joined(separator: "\n")
+    }
+}
