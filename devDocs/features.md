@@ -22,7 +22,7 @@
 | AI 问用户 AskUserQuestion | 用户没注意到终端已停等待 | 宠物切到"询问"专属动画 + 刘海条文字提醒 + （可选）通知 |
 | 需要权限确认（Bash/Edit） | 长任务里夹杂多次权限弹窗，容易错过 | 宠物切到"权限请求"动画；刘海条高亮 |
 | 多个会话并发（`cc-1` / `cc-2` / codex） | 哪个在跑、哪个卡住不清楚 | 每个会话独立宠物，位置互不重叠 |
-| 想马上开始一个小任务，还没开终端 | 需要切终端、导航、输入 | 点击任何空闲宠物 → 气泡输入 → 回车自动开终端并发起 |
+| 想马上开始一个小任务，还没开终端 | 需要切终端、导航、输入 | 点击任何空闲宠物 → 选目录 + 首条命令 → 自动打开终端、命令复制到剪贴板 |
 
 ---
 
@@ -39,9 +39,10 @@
 | 桌面宠物（**每个 AI 工具一只**） | ✅ Claude / Codex 各 1 | ✅ | ✅ |
 | 会话气泡（环绕宠物，每气泡 = 1 个活跃 session） | ✅ 显示 cwd 末层 / 标题 / 距上次状态变更耗时 | ✅ + 拖拽重排 | ✅ |
 | 状态聚合（多 session → 单宠物按优先级） | ✅ 详见 [hooks-and-priority.md](./hooks-and-priority.md) | ✅ | ✅ |
-| 点击宠物本体 → 选目录 + 输入 → 新开 CLI session | ✅ 通过 `hopet-pty` | ✅ | ✅ |
-| 点击会话气泡 → 输入框 → 注入到该 session | ✅ Hopet 启动的 session 走 PTY 注入；外部 session 退化为剪贴板 | ✅ + Accessibility 兼容外部 session | ✅ |
-| AskUserQuestion 触发 → 该气泡自动展开为对话气泡，原位回答 | ✅ | ✅ | ✅ |
+| 点击宠物本体 → 选目录 + 输入首条命令 → `open -a Terminal` 拉起 + 命令复制到剪贴板 | ✅ | ✅ | ✅ |
+| 气泡上 PermissionRequest 决策（Allow / Deny / 交给终端） | ✅ hook socket 同步回包，跨所有宿主 | ✅ | ✅ |
+| AskUserQuestion 触发 → 该气泡自动展开为答题卡，原位回答 | ✅ hook 回包 `updatedInput.answers`，跨所有宿主 | ✅ | ✅ |
+| **气泡里自由打字注入消息**（在 idle / 任意状态 session 上） | ⛔ macOS 无干净通用注入路径，详见 [architecture.md §12.5](./architecture.md#125-关于在气泡里自由输入消息v01-不做的功能) | 评估 PTY wrapper / IDE 扩展 | TBD |
 | 宠物管理面板 | ✅ 骨架 7 Tab | ✅ 完整 | ✅ |
 | 主题系统 — 内置 Hopi 主题 | ✅ | ✅ | ✅ |
 | 主题系统 — `.hopettheme` 导入 | ⛔ | ✅ 含 zip slip 防护 | ✅ |
@@ -95,9 +96,6 @@ stateDiagram-v2
     [*] --> collapsed
     collapsed --> expanded: 鼠标靠近 120px / 高优先级状态
     expanded --> collapsed: 鼠标离开 + 回 idle / collapseDelay 超时
-    collapsed --> fullBubble: 点击宠物 / ⌘⇧Space
-    expanded --> fullBubble: 点击宠物 / ⌘⇧Space
-    fullBubble --> collapsed: 提交回车 / Esc / 点击外部
 ```
 
 各态的视觉呈现：
@@ -106,7 +104,6 @@ stateDiagram-v2
 | --- | --- | --- | --- |
 | **collapsed** | 与刘海像素对齐的黑色胶囊 | 一个小色点代表最高优先级状态色（绿/橙/红） | 默认态 |
 | **expanded** | 最大 560×44 | AI 名称 + 当前状态文案 + 计时器 | 鼠标靠近 120px 内 或 出现 permission-prompt / ask-user |
-| **fullBubble** | 520×44 输入条 | 文本输入框，自动获焦，回车提交 | 点击宠物 或 `⌘⇧Space` |
 
 #### 3.2.2 吸附与动效
 
@@ -158,73 +155,83 @@ stateDiagram-v2
 | 右键点击宠物 | 弹出 context menu：显示/隐藏 Codex 宠物、切换主题、关闭所有 session、打开管理面板 |
 | 长按（≥0.2s） | 进入拖拽 |
 | 鼠标悬停某个气泡 | 气泡放大 1.1×、显示完整 cwd 路径 tooltip |
-| **左键单击气泡** | 气泡展开为输入框 → 注入到该 session（见 §3.4.2） |
+| **左键单击气泡** | 气泡展开为只读状态卡（标题/cwd/状态/耗时）；Permission/AskUserQuestion 挂起时自动展开为可交互卡片（见 §3.4.2 / §3.4.3） |
 | 右键点击气泡 | 关闭该 session / 打开 cwd / 打开终端窗口 / 复制 sessionId |
 
 ---
 
 ### 3.4 输入入口
 
-输入入口拆为两条互不干扰的路径：
+只有两个真正的输入入口，都建立在 Claude 主动开口（hook 同步等待）的前提上。**不**提供"在 idle 气泡上打字给 Claude"功能（详见 [architecture.md §12.5](./architecture.md#125-关于在气泡里自由输入消息v01-不做的功能)）。
 
 | 触发 | 含义 | 走的路径 |
 | --- | --- | --- |
-| **点击宠物本体** | 在新会话里发起提问 | §3.4.1 新开 session（必须选目录） |
-| **点击会话气泡** | 在该 session 里继续提问 | §3.4.2 注入到 session（PTY 或剪贴板兜底） |
-| **AskUserQuestion 自动展开** | 回答 Claude 的提问 | §3.4.3 原位回答（PTY 注入） |
+| **点击宠物本体** | 想新开一个 session | §3.4.1 |
+| **PermissionRequest 自动展开**（Claude 主动） | 回答工具调用是否允许 | §3.4.2 |
+| **AskUserQuestion 自动展开**（Claude 主动） | 回答 Claude 的提问 | §3.4.3 |
 
 #### 3.4.1 点击宠物本体 → 新开 session
-
-弹出对话框，分两步：
 
 ```mermaid
 flowchart LR
     Click["点击宠物"] --> Picker["目录选择器<br/>(NSOpenPanel.directoryURL)"]
-    Picker -->|确认| Recent["展示最近 10 个 cwd<br/>用户也可手输路径"]
-    Recent -->|选中目录| Input["输入框（多行）<br/>占位：向 Claude 发送一条消息…"]
-    Input -->|⏎ 提交| Spawn["hopet-pty 启动新 CLI session<br/>+ 把首条 prompt 写入 PTY"]
-    Spawn --> Term["终端窗口前台显示<br/>新气泡随 SessionStart hook 出现在宠物周围"]
+    Picker -->|选中目录| Input["输入框（NSAlert 内嵌）<br/>占位：向 Claude 发送一条消息…"]
+    Input -->|确认| Open["NSWorkspace open -a Terminal &lt;cwd&gt;<br/>+ 'cd cwd && claude [msg]' 复制到剪贴板"]
+    Open --> Term["用户在新终端窗口 ⌘V 粘贴执行<br/>新气泡随 SessionStart hook 出现"]
 ```
 
 设计细节：
-- **目录选择器**：v0.1 使用 `NSOpenPanel(canChooseDirectories=true)`；同时显示"最近 10 个 cwd"按钮便于快速复用
-- **首条 prompt**：可留空（先开终端、用户自己再敲）；不为空则随 PTY 注入
-- **终端 App 选择**：偏好 `bubble.preferredTerminal`（v0.1 默认 Terminal.app；可选 iTerm2，Ghostty / Warp 待 v0.2）
-- **失败处理**：`hopet-pty` 启动失败 → 弹错误 toast 并 fallback 为传统 `do script` 拉起方式（不带注入）
+- 使用 `NSOpenPanel(canChooseDirectories=true)` 选目录
+- 首条命令拼好（含 `cd` 和 `claude/codex` 二进制名）后**复制到剪贴板**，**不做注入**——等用户在新终端 ⌘V 粘贴执行
+- 提示 toast："Hopet 已打开终端，首行命令已复制到剪贴板，⌘V 粘贴即可"
 
-#### 3.4.2 点击会话气泡 → 注入到 session
+#### 3.4.2 PermissionRequest 自动展开
 
-```mermaid
-flowchart LR
-    Click["点击气泡"] --> Expand["气泡放大为 320×120 输入卡片"]
-    Expand --> Type["用户输入文本"]
-    Type -->|⏎| Q{"该 session<br/>是 Hopet 启动的？<br/>(有 PTYHandle)"}
-    Q -->|是| PTY["PTY 注入<br/>write(pty.master, text + '\\n')"]
-    Q -->|否| C["剪贴板兜底<br/>NSPasteboard.set(text)<br/>+ toast 提示用户去对应终端粘贴"]
-    PTY --> Done["完成；2s 内收到 user_prompt hook 关闭气泡"]
-    C --> Done
-```
+当 Claude 触发 `PermissionRequest` hook（如要执行 Bash/Edit 等需要权限的工具）：
 
-> v0.2 增加 Accessibility 注入路径，外部启动 session 也可直接发送，无需用户粘贴。
+1. hopet-emit 通过 socket 把请求转给 Hopet，**Claude 进程被挂起等响应**（30s 超时）
+2. 该 session 的气泡**自动从环绕态展开**为 360×160 的决策卡，显示工具名 + 命令/路径预览
+3. 用户点 **允许** / **拒绝** / **交给终端**
+4. 决策通过同一条挂起的 socket 回写：`{ "hookSpecificOutput": { "hookEventName": "PermissionRequest", "decision": { "behavior": "allow"|"deny" } } }`
+5. Claude 拿到决策继续工具调用循环；如选"交给终端"则回 `{}`，Claude 自走它的 TUI 弹窗
+
+跨 iTerm / Apple Terminal / VS Code / Cursor 内嵌终端 / Ghostty / Warp 等所有宿主工作——这条路是协议级的，跟终端注入路径无关。
 
 #### 3.4.3 AskUserQuestion 自动展开
 
-当任意 session 触发 `ask_user`（来自 Claude `PreToolUse` + `tool_name=AskUserQuestion`）时：
+`AskUserQuestion` 是 Claude Code 的内置工具，每次调用走标准 `PermissionRequest` hook（Hopet 通过 `tool_name=="AskUserQuestion"` 在该 hook 上分流）。
 
-1. 该 session 的气泡**自动从环绕态展开**为 320×140 的对话卡片（无需用户点击）
-2. 卡片顶部展示 Claude 的提问内容（来自 hook payload `tool_input.question`）
-3. 卡片中部展示选项按钮（如果 `tool_input.options` 存在）+ 自由文本输入框
-4. 用户回车或点选项 → 经 PTY 把答案写回 session
-5. 收到 `ask_user_resolved`（PostToolUse for AskUserQuestion）→ 卡片折回环绕态
+1. hopet-emit 把 `tool_input.questions` 透传给 Hopet
+2. 气泡**自动展开**为 360×220 的答题卡：标题/序号 + 提问 + 选项按钮（来自 `tool_input.options`） + 自定义文本框
+3. 多问题时分页填写，每题必填一项再下一页
+4. 最后一页提交时一次性回包：
 
-宠物动画同步切到 `ask-user` 态（歪头 + 双鳍捧问号牌），用户视觉锚点天然落在该气泡上。
+   ```json
+   {
+     "hookSpecificOutput": {
+       "hookEventName": "PermissionRequest",
+       "decision": {
+         "behavior": "allow",
+         "updatedInput": {
+           "questions": [...原 questions],
+           "answers": { "问题文案 A": "回答 A", "问题文案 B": "回答 B" }
+         }
+       }
+     }
+   }
+   ```
 
-#### 3.4.4 输入框通用规格
+5. Claude 用 `updatedInput` 重跑 AskUserQuestion 工具，工具识别 `answers` 字段直接把它当结果返回
 
-- 多行（`⏎` 提交、`⇧⏎` 换行）
-- 支持粘贴多行；UI 最多显示 5 行，超出滚动
-- `Esc` 取消并折回；点击外部区域同样取消
-- 提交后输入框立即关闭、显示 spinner，等到收到 `user_prompt` hook 才表示送达成功
+宠物动画同步切到 `ask-user` 态。**这条路同样跨所有宿主工作**——不依赖 PTY 注入或终端自动化。
+
+#### 3.4.4 关于"自由打字给 Claude"
+
+气泡上没有这个入口。即使去掉了 v0.x 早期版本的"输入框 → TerminalAutomation/剪贴板兜底"实现，也不打算用 PTY wrapper / IDE 扩展暴力实现——前者要求改启动方式，后者要求装额外组件，都偏离了 Hopet "感知层 + 协议层"的定位。
+
+要给 Claude 发新消息：
+- 已开的 session：在原终端 / Cursor 输入框继续打字
+- 新开 session：点击宠物本体走 §3.4.1
 
 ---
 
@@ -275,8 +282,9 @@ flowchart LR
 | 操作 | 反馈 |
 | --- | --- |
 | 鼠标悬停 ≥ 200ms | 气泡放大 1.1×；显示完整 cwd 路径 tooltip 在气泡下方 |
-| 左键单击 | 气泡展开为 320×120 输入卡片（详见 [§3.4.2](#342-点击会话气泡--注入到-session)） |
-| AskUserQuestion 触发 | 气泡**自动**展开为 320×140 对话卡片（详见 [§3.4.3](#343-askuserquestion-自动展开)） |
+| 左键单击 | 气泡展开为 280×80 只读状态卡（标题 / cwd / 状态徽章 / 耗时） |
+| PermissionRequest 挂起 | 气泡**自动**展开为 360×160 决策卡（详见 [§3.4.2](#342-permissionrequest-自动展开)） |
+| AskUserQuestion 触发 | 气泡**自动**展开为 360×220 答题卡（详见 [§3.4.3](#343-askuserquestion-自动展开)） |
 | 右键单击 | context menu：关闭 session / 打开 cwd / 打开终端 / 复制 sessionId |
 
 #### 3.5.5 屏幕边缘适应
@@ -425,7 +433,7 @@ flowchart TD
 1. 检测 `~/.claude/settings.json` 是否存在，不存在则创建空 `{}`
 2. 备份为 `~/.claude/settings.json.hopet.bak`（带时间戳）
 3. Merge 架构文档 8.4 所列的 hook 条目；遇到已有同名 hook 则 **append**（保留用户既有 hook）
-4. 将 `hopet-emit` 从 bundle 资源拷贝到 `~/.hopet/bin/hopet-emit` 并 `chmod +x`（首次安装时同时拷贝 `hopet-pty`）
+4. 将 `hopet-emit` 从 bundle 资源拷贝到 `~/.hopet/bin/hopet-emit` 并 `chmod +x`
 5. 调用 `HookDoctor`：
    - settings.json 语法正确
    - `~/.hopet/bin/hopet-emit` 存在且可执行
@@ -440,7 +448,7 @@ flowchart TD
 
 ### 5.3 升级
 
-- App 升级时如 `hopet-emit` / `hopet-pty` 版本低于 bundle 版本，自动替换二进制（不改 settings.json）
+- App 升级时如 `hopet-emit` 版本低于 bundle 版本，自动替换二进制（不改 settings.json）
 
 ### 5.4 故障排查（HookDoctor 输出示例）
 
@@ -488,13 +496,11 @@ flowchart TD
 
 | 快捷键 | 作用 | 范围 |
 | --- | --- | --- |
-| `⌘⇧Space` | 打开菜单栏气泡输入 | 全局 |
 | `⌘⇧H` | 显示/隐藏所有宠物 | 全局 |
 | `⌘,` | 打开偏好面板 | App active 时 |
 | `⌘W` | 关闭当前窗口 | App active 时 |
-| `Esc` | 关闭气泡 / 取消拖拽 | 气泡 active |
-| `↩` | 提交气泡输入 | 气泡 active |
-| `⇧↩` | 气泡内换行 | 气泡 active |
+| `Esc` | 关闭气泡展开 / 取消拖拽 | 气泡 active |
+| `↩` | 提交 Permission 决策 / AskUserQuestion 答题 | 对应卡片 active |
 
 ### 7.1 录制与冲突处理
 
@@ -525,15 +531,14 @@ flowchart TD
 3. **安装 Hooks** — 一键安装，失败给出手动指引
 4. **授予权限**（按需请求）：
    - 通知（必选推荐）
-   - 辅助功能（可后续授权）
    - Automation（终端 App，用于 §3.4.1 启动新 session 时驱动终端 App）
 5. **完成** — 显示第一只宠物，触发一次 `completed` 动画作为 welcome
 
 ### 8.2 权限缺失时的降级
 
 - 无通知权限：仅宠物动画 + 刘海条，无系统横幅
-- 无辅助功能权限：气泡输入对外部启动的 session 退化为剪贴板兜底（[architecture §12.5.3](./architecture.md) 路径 C）
-- 无 Automation 权限：新开终端退化为用 `open -a Terminal` 启动并不再自动 cd / exec CLI，而是把完整命令复制到剪贴板并提示用户粘贴
+- 无 Automation 权限：新开终端退化为 `open -a Terminal` 启动并把完整命令复制到剪贴板提示用户粘贴
+- Permission / AskUserQuestion 答题不依赖任何 macOS 权限（hook 通道是协议级）
 - 任一关键权限缺失时，菜单栏图标显示小红点，点击后显示修复入口
 
 ---

@@ -2,10 +2,13 @@ import AppKit
 import Foundation
 import UserNotifications
 
-/// v0.1 输入注入协调器。
-/// - 点击宠物本体：弹 NSOpenPanel 选目录 → 用 `open -a Terminal` 打开终端，并把首条 prompt 复制到剪贴板。
-/// - 点击会话气泡：把文本复制到剪贴板 + 通知用户去对应终端粘贴。
-/// (PTY wrapper 路径 v0.1 暂未实现；接口位置已留好。)
+/// 协调来自气泡 UI 的两类用户操作：
+/// - 点击宠物本体：弹 NSOpenPanel 选目录 → 用 `open -a Terminal` 打开终端 + 把首条命令复制到剪贴板。
+/// - 气泡上 Allow/Deny / AskUserQuestion 答题：转发给 PermissionPrompter 通过挂起的 socket 回写。
+///
+/// **不再做"在气泡里输入消息往 session 注入"**。macOS 没有可靠的跨终端宿主反向 stdin 注入路径
+/// （TIOCSTI 受 controlling tty 限制；AppleScript 仅 iTerm/Terminal 支持；IDE 扩展自己 spawn 的
+/// claude PTY master fd 第三方进程拿不到），强行做只能在很窄的场景下"看着像通了"。
 @MainActor
 public final class InputCoordinator {
     private unowned let registry: SessionRegistry
@@ -74,35 +77,6 @@ public final class InputCoordinator {
         try? task.run()
 
         notify(title: "Hopet 已打开终端", body: "首行命令已复制到剪贴板，⌘V 粘贴即可。")
-    }
-
-    /// 把消息「注入」到指定 session：
-    /// - 优先 TerminalAutomation 走 AppleScript 直送（iTerm/Terminal）。
-    /// - 失败兜底：复制到剪贴板 + NSLog（避免 UNUserNotificationCenter 在未打包时崩溃）。
-    public func submit(text: String, toSessionId sessionId: String) {
-        let session = registry.session(sessionId)
-        let sid = sessionId.hopetShortId
-        HopetLog.trace("submit sid=\(sid) tty=\(session?.terminalTty ?? "nil") termApp=\(session?.terminalApp ?? "nil")")
-        let result = TerminalAutomation.send(
-            text: text,
-            tty: session?.terminalTty,
-            termApp: session?.terminalApp
-        )
-        switch result {
-        case .sent:
-            HopetLog.trace("submit OK via TerminalAutomation")
-            HopetLog.info("submit → \(sid) via TerminalAutomation")
-        case .fallback(let reason):
-            HopetLog.trace("submit FALLBACK: \(reason)")
-            HopetLog.warn("TerminalAutomation fallback (\(reason)); copied to clipboard")
-            let pasteboard = NSPasteboard.general
-            pasteboard.clearContents()
-            pasteboard.setString(text, forType: .string)
-            notify(
-                title: "已复制到剪贴板",
-                body: "请到 session \(sid) 对应的终端窗口粘贴 (⌘V)。"
-            )
-        }
     }
 
     private func notify(title: String, body: String) {

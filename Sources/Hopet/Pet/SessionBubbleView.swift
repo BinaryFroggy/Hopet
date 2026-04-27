@@ -1,12 +1,20 @@
 import SwiftUI
 
 /// 单个会话气泡。折叠态 64×64，展开态根据 pendingPermission / pendingAskUser / pendingQuestion 自适应。
+///
+/// 可交互的输入只出现在 PermissionRequest hook 同步打通的两条路径上：
+/// - `pendingPermission`：Allow / Deny / Ask 按钮，回包通过挂起的 socket。
+/// - `pendingAskUser`：结构化 AskUserQuestion 答题，回包带 `updatedInput.answers`。
+///
+/// 其它情况（idle / 旧 fire-and-forget pendingQuestion）只展示状态信息，
+/// 不再提供"自由输入消息"入口——macOS 没有可靠的跨终端宿主反向 stdin 注入路径
+/// （TIOCSTI 受 controlling tty 限制、AppleScript 仅 iTerm/Terminal、第三方进程
+/// 拿不到 IDE/CLI extension spawn 的 PTY master fd）。
 public struct SessionBubbleView: View {
     let bubble: SessionBubble
     let isLeader: Bool
     let elapsed: String
     let onTap: () -> Void
-    let onSubmit: (String) -> Void
     let onResolvePermission: (String) -> Void  // "allow" / "deny" / "ask"
     /// AskUserQuestion 答题提交回调。`answers` 形如 `{ "问题文案": "回答" }`；
     /// `cancel = true` 表示用户取消（让 Claude 走自身 UI）。
@@ -18,7 +26,6 @@ public struct SessionBubbleView: View {
         isLeader: Bool,
         elapsed: String,
         onTap: @escaping () -> Void,
-        onSubmit: @escaping (String) -> Void,
         onResolvePermission: @escaping (String) -> Void = { _ in },
         onResolveAskUser: @escaping ([String: String], Bool) -> Void = { _, _ in },
         onDismiss: @escaping () -> Void
@@ -27,13 +34,11 @@ public struct SessionBubbleView: View {
         self.isLeader = isLeader
         self.elapsed = elapsed
         self.onTap = onTap
-        self.onSubmit = onSubmit
         self.onResolvePermission = onResolvePermission
         self.onResolveAskUser = onResolveAskUser
         self.onDismiss = onDismiss
     }
 
-    @State private var draftText: String = ""
     @FocusState private var inputFocused: Bool
     /// 结构化 AskUserQuestion 的答题暂存：问题文案 → 用户当前输入。
     @State private var elicitationAnswers: [String: String] = [:]
@@ -147,8 +152,8 @@ public struct SessionBubbleView: View {
         .frame(width: 360, height: 160)
     }
 
-    /// 结构化 AskUserQuestion 卡片：用户答完后通过 hook 同步通道回写 updatedInput.answers，
-    /// 不依赖 TerminalAutomation。多问题时分页填写，最后一页提交时一次性回包。
+    /// 结构化 AskUserQuestion 卡片：用户答完后通过挂起的 socket 同步回写 updatedInput.answers。
+    /// 多问题时分页填写，最后一页提交时一次性回包。这条路径跨所有终端宿主工作（协议级而非系统级）。
     private var elicitationCard: some View {
         let pa = bubble.pendingAskUser!
         let total = max(1, pa.questions.count)
@@ -254,8 +259,9 @@ public struct SessionBubbleView: View {
         elicitationIndex = 0
     }
 
-    /// 早期 fire-and-forget pendingQuestion 卡片（PreToolUse 路径）：仅展示问题，
-    /// 答题通过 TerminalAutomation / 剪贴板兜底。新版本若 PermissionRequest 同步路径已通，会优先走 elicitationCard。
+    /// 旧 fire-and-forget pendingQuestion 卡片（PreToolUse `tool_name=AskUserQuestion` 路径）。
+    /// 这条路径没带 requestId，无法同步回包，只能展示提示让用户回到原终端作答。
+    /// 新版本若 PermissionRequest 同步路径触发，会优先走 elicitationCard。
     private var askUserCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -271,27 +277,17 @@ public struct SessionBubbleView: View {
                 Text(q)
                     .font(.system(size: 11))
                     .foregroundStyle(.primary)
-                    .lineLimit(3)
+                    .lineLimit(4)
             }
-            TextField("输入回答…", text: $draftText, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
-                .lineLimit(1...3)
-                .focused($inputFocused)
-                .onSubmit { submit() }
-            HStack {
-                Spacer()
-                Button("发送") { submit() }
-                    .keyboardShortcut(.return, modifiers: [])
-                    .buttonStyle(.borderedProminent)
-            }
+            Text("请到原终端 / Claude UI 回答。")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
         }
         .padding(12)
-        .frame(width: 320, height: 160)
-        .onAppear { inputFocused = true }
+        .frame(width: 320, height: 130)
     }
 
-    /// 默认卡片：标题/路径/耗时 + 输入框。
-    /// 输入框对所有会话都展示；非终端宿主走剪贴板兜底（由 InputCoordinator 决定）。
+    /// 默认卡片：只读的 session 状态摘要。气泡不再做"自由输入消息"入口。
     private var defaultCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -303,30 +299,21 @@ public struct SessionBubbleView: View {
                 }
                 .buttonStyle(.plain)
             }
-            Text("📁 \(bubble.displayCwd) · ⏱ \(elapsed)")
+            Text("📁 \(bubble.displayCwd)")
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
-            TextField("输入消息…", text: $draftText, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
-                .lineLimit(1...3)
-                .focused($inputFocused)
-                .onSubmit { submit() }
-            HStack {
+                .lineLimit(1)
+            HStack(spacing: 6) {
+                Text(bubble.state.badgeText)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(bubble.state.accentColor)
                 Spacer()
-                Button("发送") { submit() }
-                    .keyboardShortcut(.return, modifiers: [])
-                    .buttonStyle(.borderedProminent)
+                Text("⏱ \(elapsed)")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(12)
-        .frame(width: 320, height: 140)
-        .onAppear { inputFocused = true }
-    }
-
-    private func submit() {
-        let text = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        onSubmit(text)
-        draftText = ""
+        .frame(width: 280, height: 80)
     }
 }

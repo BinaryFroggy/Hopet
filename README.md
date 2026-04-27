@@ -25,14 +25,26 @@ swift run hopet-emit --help # CLI helper（hooks 用它把事件投递到 socket
 - 菜单栏 + 偏好面板 7 Tab 骨架
 - 桌面宠物 NSPanel + 文字徽章渲染 + 拖拽/位置记忆
 - 会话气泡环绕布局算法（含外环 30° 偏移、屏幕边缘适应）
+- 气泡上 **Permission Allow/Deny** 与 **AskUserQuestion 结构化答题** —— 通过挂起的 hook socket
+  同步回包给 Claude（跨 iTerm / Apple Terminal / VS Code / Cursor 内嵌终端等所有宿主）
 - 刘海条三态 / 无刘海机型降级顶条
 - 默认 "Hopi" 主题（无图，仅状态文字 + 颜色 token）
+
+## 关于"在气泡里自由输入消息发到 session"
+
+**v0.1 不做这个功能。** macOS 没有可靠的跨终端宿主反向 stdin 注入路径——
+TIOCSTI 受 controlling tty 限制、AppleScript 仅 iTerm/Terminal 支持、IDE 扩展自己 spawn
+出来的 claude 子进程的 PTY master fd 第三方进程拿不到。强行做只能在很窄的场景下"看着像通了"。
+
+要在气泡里"打字给 Claude"，目前只有两条路真正可行：(a) 提供 `hopet-pty` wrapper 让用户用
+`hopet-pty claude` 启动，绑定 Hopet 起的 session；(b) 写配套 IDE 扩展。两条都需要改用户启动
+方式或额外组件，留待后续版本评估。
+
+Permission 与 AskUserQuestion 走 hook 同步通道，跟终端注入无关，因此跨宿主都能正常工作。
 
 ## v0.1 暂未实现
 
 - 海豹精灵图与 SpriteKit 动画（用文字代替）
-- `hopet-pty` PTY wrapper（点击宠物本体走 `open -a Terminal`，输入注入退化为剪贴板）
-- Accessibility 注入路径（v0.2）
 - 第三方 `.hopettheme` 导入（v0.2）
 
 ## 文档
