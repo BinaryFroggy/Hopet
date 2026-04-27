@@ -116,15 +116,33 @@ public struct Session: Codable, Identifiable, Hashable, Sendable {
         URL(fileURLWithPath: cwd).lastPathComponent
     }
 
-    /// 气泡上展示的标题（最多 18 字符，无标题时回退到 cwd）。
+    /// 气泡上展示的标题（最多 40 字符，无标题时回退到 cwd）。
+    /// 视图层根据 `hasUserTitle`/`SessionBubble.hasTitle` 决定是否实际渲染该字段，
+    /// 避免在没有真实标题时和目录名重复显示。
     public var displayTitle: String {
         let raw = title ?? cwdLastComponent
-        return String(raw.prefix(18))
+        return String(raw.prefix(40))
     }
 
     /// 气泡上展示的耗时（实时由 stateSince 计算）。
     public func elapsedDescription(now: Date = Date()) -> String {
-        let seconds = max(0, Int(now.timeIntervalSince(stateSince)))
+        Self.humanDuration(max(0, Int(now.timeIntervalSince(stateSince))))
+    }
+
+    /// 上一个状态持续了多久 / 距完成多久。
+    /// - 运行中（thinking/responding/toolUse/askUser/permissionPrompt）：返回 "已运行 5m"
+    /// - 闲置/已完成/错误：返回 "5m 前"
+    public func stateDurationPhrase(now: Date = Date()) -> String {
+        let unit = elapsedDescription(now: now)
+        switch currentState {
+        case .idle, .completed, .errorInterrupted:
+            return "\(unit) 前"
+        case .thinking, .responding, .toolUse, .askUser, .permissionPrompt:
+            return "已运行 \(unit)"
+        }
+    }
+
+    private static func humanDuration(_ seconds: Int) -> String {
         if seconds < 60 { return "\(seconds)s" }
         if seconds < 3600 { return "\(seconds / 60)m" }
         return "\(seconds / 3600)h"

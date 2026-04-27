@@ -7,8 +7,16 @@ import Foundation
 ///      `{behavior:"allow", updatedInput:{...原 tool_input, answers:{...}}}`。
 ///
 /// 两条路径共用一张 `pending: requestId → reply` 表，由不同的 enqueue/resolve 入口区分。
+///
+/// 自动让权：超过 `Self.staleTimeout`（略早于 hopet-emit 的 30s 接收超时）用户没决策，
+/// PermissionPrompter 会主动回 `decision="ask"` 把控制权交还终端 UI，并清掉气泡上的待决策项。
+/// 否则气泡上的按钮会变成"点了没反应"——SocketServer 30s 兜底 `reply(nil)` 后
+/// `ReplyGuard.fired=true`，后续 reply 会被静默吞掉。
 @MainActor
 public final class PermissionPrompter {
+    /// 自动让权超时；必须 < hopet-emit `SO_RCVTIMEO`（30s），否则 socket 已被对端关闭再写也无效。
+    private static let staleTimeout: TimeInterval = 28
+
     private unowned let registry: SessionRegistry
     private var pending: [String: @Sendable (Data?) -> Void] = [:]
 
@@ -38,6 +46,7 @@ public final class PermissionPrompter {
                 filePath: filePath
             )
         }
+        scheduleAutoExpire(sessionId: event.sessionId, requestId: requestId)
     }
 
     /// 用户在气泡上点击决策后调用。decision ∈ {"allow", "deny", "ask"}。
@@ -89,6 +98,7 @@ public final class PermissionPrompter {
                 originalToolInputJSON: originalJSON
             )
         }
+        scheduleAutoExpire(sessionId: event.sessionId, requestId: requestId)
     }
 
     /// 用户提交答案。answers 形如 `{ "问题文案": "回答" }`，对应 questions 顺序映射。
@@ -128,6 +138,34 @@ public final class PermissionPrompter {
         reply(encodeResponse(response))
 
         registry.patch(sessionId) { s in
+            if s.pendingAskUser?.requestId == requestId {
+                s.pendingAskUser = nil
+            }
+        }
+    }
+
+    // MARK: - Auto-expire
+
+    /// 入队后排一个本地超时：若用户始终没点击，主动回 ask 把决策权交还终端 UI，
+    /// 并清掉气泡上的待决策项，避免按钮变成"假活"。
+    private func scheduleAutoExpire(sessionId: String, requestId: String) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.staleTimeout) { [weak self] in
+            self?.expireIfStale(sessionId: sessionId, requestId: requestId)
+        }
+    }
+
+    private func expireIfStale(sessionId: String, requestId: String) {
+        guard let reply = pending.removeValue(forKey: requestId) else { return }
+        let sid = sessionId.hopetShortId
+        let rid = requestId.hopetShortId
+        HopetLog.trace("auto-expire", "sid=\(sid) reqId=\(rid) decision=ask")
+        let payload = PermissionResponse(requestId: requestId, decision: "ask")
+        reply(encodeResponse(payload))
+
+        registry.patch(sessionId) { s in
+            if s.pendingPermission?.requestId == requestId {
+                s.pendingPermission = nil
+            }
             if s.pendingAskUser?.requestId == requestId {
                 s.pendingAskUser = nil
             }

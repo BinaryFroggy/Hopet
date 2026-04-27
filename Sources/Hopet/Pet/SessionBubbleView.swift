@@ -13,7 +13,10 @@ import SwiftUI
 public struct SessionBubbleView: View {
     let bubble: SessionBubble
     let isLeader: Bool
-    let elapsed: String
+    /// 折叠态用的紧凑耗时，例如 "5m" / "30s"。
+    let elapsedShort: String
+    /// 展开态用的描述：运行中显示"已运行 X"，闲置显示"X 前"。
+    let stateDurationPhrase: String
     let onTap: () -> Void
     let onResolvePermission: (String) -> Void  // "allow" / "deny" / "ask"
     /// AskUserQuestion 答题提交回调。`answers` 形如 `{ "问题文案": "回答" }`；
@@ -24,7 +27,8 @@ public struct SessionBubbleView: View {
     public init(
         bubble: SessionBubble,
         isLeader: Bool,
-        elapsed: String,
+        elapsedShort: String,
+        stateDurationPhrase: String,
         onTap: @escaping () -> Void,
         onResolvePermission: @escaping (String) -> Void = { _ in },
         onResolveAskUser: @escaping ([String: String], Bool) -> Void = { _, _ in },
@@ -32,7 +36,8 @@ public struct SessionBubbleView: View {
     ) {
         self.bubble = bubble
         self.isLeader = isLeader
-        self.elapsed = elapsed
+        self.elapsedShort = elapsedShort
+        self.stateDurationPhrase = stateDurationPhrase
         self.onTap = onTap
         self.onResolvePermission = onResolvePermission
         self.onResolveAskUser = onResolveAskUser
@@ -46,29 +51,49 @@ public struct SessionBubbleView: View {
     @State private var elicitationIndex: Int = 0
 
     public var body: some View {
-        Group {
+        ZStack {
             if bubble.expanded {
                 expandedCard
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.35, anchor: .center).combined(with: .opacity),
+                        removal: .scale(scale: 0.35, anchor: .center).combined(with: .opacity)
+                    ))
             } else {
                 collapsedDot
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.6, anchor: .center).combined(with: .opacity),
+                        removal: .scale(scale: 0.6, anchor: .center).combined(with: .opacity)
+                    ))
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: bubble.expanded)
+        .animation(.spring(response: 0.32, dampingFraction: 0.78), value: bubble.expanded)
     }
 
     private var collapsedDot: some View {
-        VStack(spacing: 1) {
-            Text("📁 \(bubble.displayCwd)")
-                .font(.system(size: 9, weight: .medium))
+        // 是否处于"运行中"状态：决定折叠态时间前缀图标。
+        let isRunning: Bool = {
+            switch bubble.state {
+            case .thinking, .responding, .toolUse, .askUser, .permissionPrompt: return true
+            case .idle, .completed, .errorInterrupted: return false
+            }
+        }()
+
+        return VStack(spacing: 1) {
+            Text(bubble.displayCwd)
+                .font(.system(size: 10, weight: .semibold))
                 .lineLimit(1)
-            Text(bubble.displayTitle)
-                .font(.system(size: 9, weight: .semibold))
-                .lineLimit(1)
-            Text("⏱ \(elapsed)")
-                .font(.system(size: 8))
-                .foregroundStyle(.secondary)
+                .minimumScaleFactor(0.6)
+                .truncationMode(.middle)
+            HStack(spacing: 2) {
+                Image(systemName: isRunning ? "play.fill" : "clock")
+                    .font(.system(size: 7))
+                Text(elapsedShort)
+                    .font(.system(size: 9, weight: .medium))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(.secondary)
         }
-        .padding(4)
+        .padding(.horizontal, 6)
         .frame(width: 64, height: 64)
         .background(
             Circle().fill(.ultraThinMaterial)
@@ -77,32 +102,24 @@ public struct SessionBubbleView: View {
             Circle().stroke(bubble.state.accentColor, lineWidth: isLeader ? 2.5 : 1.5)
         )
         .shadow(radius: 3, y: 1)
+        .contentShape(Circle())
         .onTapGesture { onTap() }
     }
 
+    @ViewBuilder
     private var expandedCard: some View {
         // 优先级：权限请求 > 结构化 AskUserQuestion > 早期 fire-and-forget pendingQuestion > 普通输入。
         // 同时只能渲染一种主体内容。
-        Group {
-            if bubble.pendingPermission != nil {
-                permissionCard
-            } else if bubble.pendingAskUser != nil {
-                elicitationCard
-            } else if bubble.pendingQuestion != nil {
-                askUserCard
-            } else {
-                defaultCard
-            }
+        if bubble.pendingPermission != nil {
+            permissionCard.modifier(ExpandedCardChrome(accent: bubble.state.accentColor))
+        } else if bubble.pendingAskUser != nil {
+            elicitationCard.modifier(ExpandedCardChrome(accent: bubble.state.accentColor))
+        } else if bubble.pendingQuestion != nil {
+            askUserCard.modifier(ExpandedCardChrome(accent: bubble.state.accentColor))
+        } else {
+            // 普通态：横向不规则大气泡，整张卡可点击收起。
+            defaultCard.modifier(IrregularBubbleChrome(accent: bubble.state.accentColor))
         }
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.ultraThinMaterial)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(bubble.state.accentColor, lineWidth: 2)
-        )
-        .shadow(radius: 8, y: 4)
     }
 
     /// 权限请求卡片（PermissionRequest hook 触发）。
@@ -149,7 +166,8 @@ public struct SessionBubbleView: View {
             }
         }
         .padding(12)
-        .frame(width: 360, height: 160)
+        .frame(width: 360)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     /// 结构化 AskUserQuestion 卡片：用户答完后通过挂起的 socket 同步回写 updatedInput.answers。
@@ -287,33 +305,95 @@ public struct SessionBubbleView: View {
         .frame(width: 320, height: 130)
     }
 
-    /// 默认卡片：只读的 session 状态摘要。气泡不再做"自由输入消息"入口。
+    /// 默认卡片：横向不规则大气泡。展示目录、标题（若有）、状态持续时长。整张卡再点击一次收起。
     private var defaultCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(bubble.displayTitle)
-                    .font(.system(size: 12, weight: .semibold))
-                Spacer()
-                Button(action: onDismiss) {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+        HStack(alignment: .top, spacing: 12) {
+            Circle()
+                .fill(bubble.state.accentColor)
+                .frame(width: 8, height: 8)
+                .padding(.top, 6)
+
+            VStack(alignment: .leading, spacing: 3) {
+                if bubble.hasTitle {
+                    Text("📁 \(bubble.displayCwd)")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(bubble.displayTitle)
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    // 没有真实标题：只渲染目录，不再补占位"标题"行，避免重复。
+                    Text("📁 \(bubble.displayCwd)")
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
-                .buttonStyle(.plain)
             }
-            Text("📁 \(bubble.displayCwd)")
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            HStack(spacing: 6) {
+
+            Spacer(minLength: 8)
+
+            VStack(alignment: .trailing, spacing: 3) {
                 Text(bubble.state.badgeText)
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(bubble.state.accentColor)
-                Spacer()
-                Text("⏱ \(elapsed)")
+                    .lineLimit(1)
+                    .fixedSize()
+                Text(stateDurationPhrase)
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize()
             }
         }
-        .padding(12)
-        .frame(width: 280, height: 80)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+        .frame(width: 360, alignment: .leading)
+        .frame(minHeight: 76)
+        .contentShape(Rectangle())
+        .onTapGesture { onTap() }
+    }
+}
+
+/// 普通态使用的"横向不规则大气泡"外壳：四角不等的圆角矩形 + 半透明材质 + 状态色描边。
+private struct IrregularBubbleChrome: ViewModifier {
+    let accent: Color
+
+    private var shape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            topLeadingRadius: 28,
+            bottomLeadingRadius: 18,
+            bottomTrailingRadius: 32,
+            topTrailingRadius: 22,
+            style: .continuous
+        )
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .background(shape.fill(.ultraThinMaterial))
+            .overlay(shape.stroke(accent, lineWidth: 2))
+            .shadow(radius: 8, y: 4)
+    }
+}
+
+/// 决策类卡片（权限/AskUser/旧 fire-and-forget）沿用稳重的圆角矩形外壳。
+private struct ExpandedCardChrome: ViewModifier {
+    let accent: Color
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(.ultraThinMaterial)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(accent, lineWidth: 2)
+            )
+            .shadow(radius: 8, y: 4)
     }
 }

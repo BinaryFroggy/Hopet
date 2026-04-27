@@ -3,11 +3,16 @@ import SwiftUI
 
 /// 宿主一只宠物的非激活、跨 Space、置顶 NSPanel。
 public final class PetWindow: NSPanel {
+    /// 宠物舞台容器尺寸。需要够大以容下"任一展开卡片沿环绕方向外推 + 卡片半宽"，
+    /// 否则第一环水平展开（外推中心 ~260px + 卡片半宽 180px = 440px）会超出窗口被裁切。
+    /// PetStageView / hosting view / Window 必须使用同一组尺寸。
+    public static let stageSize = CGSize(width: 1100, height: 800)
+
     public let tool: AITool
 
     public init(tool: AITool, contentView: NSView, initialOrigin: CGPoint) {
         self.tool = tool
-        let frame = NSRect(origin: initialOrigin, size: NSSize(width: 720, height: 720))
+        let frame = NSRect(origin: initialOrigin, size: NSSize(width: PetWindow.stageSize.width, height: PetWindow.stageSize.height))
         super.init(
             contentRect: frame,
             styleMask: [.borderless, .nonactivatingPanel],

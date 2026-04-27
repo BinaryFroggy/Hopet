@@ -132,6 +132,9 @@ let allowedKeys: [String] = [
     "tool_input.command",
     "tool_input.file_path",
     "tool_input.question",
+    // UserPromptSubmit hook 的 prompt：Hopet 用它生成会话标题。
+    // 不加进白名单的话气泡会一直回退到 cwd 当标题。
+    "prompt",
     "notification_type",
     "message",
     "session_id",

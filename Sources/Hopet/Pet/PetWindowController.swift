@@ -70,7 +70,7 @@ public final class PetWindowController {
             }
         )
         let hosting = FirstClickHostingView(rootView: stageView)
-        hosting.frame = NSRect(x: 0, y: 0, width: 720, height: 720)
+        hosting.frame = NSRect(origin: .zero, size: PetWindow.stageSize)
 
         let win = PetWindow(tool: tool, contentView: hosting, initialOrigin: origin)
         windows[tool] = win
