@@ -6,7 +6,6 @@ public struct PetStageView: View {
     @ObservedObject var themes: ThemeStore
     let tool: AITool
     let onPetClick: () -> Void
-    let onSubmit: (String, String) -> Void   // (sessionId, text)
     let onResolvePermission: (String, String, String) -> Void  // (sessionId, requestId, decision)
     /// (sessionId, requestId, answers, cancel)
     let onResolveAskUser: (String, String, [String: String], Bool) -> Void
@@ -20,7 +19,6 @@ public struct PetStageView: View {
         themes: ThemeStore,
         tool: AITool,
         onPetClick: @escaping () -> Void,
-        onSubmit: @escaping (String, String) -> Void,
         onResolvePermission: @escaping (String, String, String) -> Void,
         onResolveAskUser: @escaping (String, String, [String: String], Bool) -> Void
     ) {
@@ -28,7 +26,6 @@ public struct PetStageView: View {
         self.themes = themes
         self.tool = tool
         self.onPetClick = onPetClick
-        self.onSubmit = onSubmit
         self.onResolvePermission = onResolvePermission
         self.onResolveAskUser = onResolveAskUser
     }
@@ -62,10 +59,6 @@ public struct PetStageView: View {
                     elapsed: session.elapsedDescription(now: now),
                     onTap: {
                         expandedBubbleId = (expandedBubbleId == session.id) ? nil : session.id
-                    },
-                    onSubmit: { text in
-                        onSubmit(session.id, text)
-                        expandedBubbleId = nil
                     },
                     onResolvePermission: { decision in
                         guard let pp = session.pendingPermission else { return }

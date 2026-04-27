@@ -27,8 +27,8 @@
 | 会话气泡（每只宠物周围环绕，每个气泡 = 1 个活跃 session） | ✅ 默认显示一层 cwd / 标题 / 距上次状态变更耗时 | ✅ + 拖拽重排 |
 | 状态聚合（多会话 → 单宠物按优先级聚合，详见 [hooks-and-priority.md §2](./hooks-and-priority.md#2-petstate-优先级)） | ✅ | ✅ |
 | 点击宠物本体 → 弹出"目录选择 + 输入"对话框 → 新开终端启动 CLI | ✅ | ✅ |
-| 点击会话气泡 → 展开输入框 → 注入到该 session | ✅ 通过 PTY (pseudo-terminal，伪终端) wrapper 路径（Hopet 启动的 session）；外部启动 session 退化为剪贴板复制 | ✅ + Accessibility (AX) 注入兼容外部 session |
-| AskUserQuestion 触发 → 该 session 气泡自动展开为对话气泡，原位回答 | ✅ | ✅ |
+| 点击会话气泡 → 展开**只读**状态卡 / 在 Permission/AskUserQuestion 挂起时展开**可交互**卡片 | ✅ Permission Allow-Deny + AskUserQuestion 结构化答题（hook 同步回包，跨所有宿主）；**不**支持气泡里自由输入消息（详见 §12.5） | 评估 PTY wrapper / IDE 扩展两条路 |
+| AskUserQuestion 触发 → 该 session 气泡自动展开为对话气泡，原位回答 | ✅ 通过 PermissionRequest hook + `updatedInput.answers` | ✅ |
 | 内置默认 Hopi 主题 | ✅ | ✅ |
 | `.hopettheme` 第三方主题导入 | — | ✅ |
 | AI 工具 ↔ 主题绑定 | 全局单一主题 | 按 AI 工具分别绑定 |
@@ -220,7 +220,7 @@ flowchart LR
 - `NotchWindow: NSPanel` — 吸附在刘海区域的无边框窗口
 - `NotchView: SwiftUI` — 三态：collapsed / expanded / fullBubble
 - `FallbackTopBarWindow` — 无刘海机型降级为顶部细条
-- `BubbleInputController` — 展开输入气泡、接管键盘焦点、提交回调
+- `BubbleInputController` — 展开 Permission / AskUserQuestion 卡片、收集决策与答案、回写挂起的 hook socket
 
 ### 5.4 HopetPanel（管理面板）
 
@@ -281,7 +281,6 @@ struct Session: Codable, Identifiable {
     var currentState: PetState
     var stateSince: Date        // 上次状态变更时刻，气泡展示"距今"用
     var lastPromptSnippet: String? // 最近一条 user prompt 摘要（截断 256 字符，可关闭）
-    var ptyHandle: PTYHandle?   // 仅 Hopet 通过 PTY wrapper 启动的 session 持有；外部 session 为 nil
 }
 ```
 
@@ -353,7 +352,7 @@ struct SessionBubble: Identifiable {
     var displayCwd: String             // 派生自 Session.cwdLastComponent
     var displayElapsed: String         // 由 stateSince 实时计算（"3s" / "2m" / "1h"）
     var state: PetState                // 该 session 自身状态
-    var expanded: Bool                 // 是否展开为输入气泡
+    var expanded: Bool                 // 是否展开为大卡片（只读状态卡 / Permission 决策卡 / AskUserQuestion 答题卡）
 }
 ```
 
@@ -853,9 +852,10 @@ debug 日志（`advanced.logLevel = debug`）可记录截断后的 payload 字�
 
 ### 10.4 权限
 
-- **辅助功能**：气泡输入"注入到当前 session"功能需要 Accessibility 权限（向终端窗口发键盘事件）；首次使用时引导授权，未授权则降级为"新开会话"。
-- **Apple Events / Automation**：识别终端前台窗口 / 打开新标签页需要 Automation 权限（针对 Terminal.app / iTerm / Ghostty / Warp 等常见终端，已在 Info.plist 声明用途）。
-- **通知**：权限请求状态的横幅提醒需 User Notifications 授权。
+- **Permission / AskUserQuestion 答题**：完全走 hook socket 同步回包通道，**不需要任何 macOS 权限**（不依赖 Accessibility / Automation）。
+- **Apple Events / Automation**：仅 "点击宠物本体新开 CLI session" 时调用 `open -a Terminal`，由系统自动按需弹授权。
+- **通知**：横幅提醒需 User Notifications 授权（v0.x 未打包成 .app 时降级到 NSLog）。
+- **气泡里自由打字往 session 发消息：v0.1 不做**（详见 §12.5）。
 
 ---
 
@@ -869,8 +869,7 @@ debug 日志（`advanced.logLevel = debug`）可记录截断后的 payload 字�
 │   ├── hopi.default/           # 内置主题（首次启动从 bundle 拷贝）
 │   └── <user-theme-id>/        # 用户导入主题
 ├── bin/
-│   ├── hopet-emit              # Swift CLI helper，所有 hook 都通过它发事件
-│   └── hopet-pty               # PTY wrapper，由"点击宠物启动新 session"使用
+│   └── hopet-emit              # Swift CLI helper，所有 hook 都通过它发事件
 ├── state/
 │   └── sessions.json           # 最近 Session 快照（启动时恢复 registry）
 ├── run/
@@ -937,60 +936,35 @@ SpriteKit 实现为 `SpriteKitPetRenderer`，后续可新增 `Live2DPetRenderer`
 
 **Leader 高亮**：`PetInstance.drivenBySessionId` 对应的气泡边框加粗 + 用宠物当前状态色，其它气泡边框使用浅灰。
 
-**展开态**：用户点击某个气泡，该气泡放大为 320×120 的输入卡片，遮挡邻近气泡（其它气泡不动，输入态结束后回到原位置）。
+**展开态**：用户点击某个气泡，该气泡放大为 280×80 的**只读状态卡**（标题 / cwd / 状态徽章 / 耗时），不提供"输入消息"功能（详见 §12.5）。
 
-**AskUserQuestion 触发时**：该 session 的气泡**自动展开**（无需点击）为 320×140 的对话卡片，显示 Claude 的提问内容（来自 hook payload `tool_input.question`），并提供输入框 + 选项按钮。用户回答后通过气泡 → PTY 直接回写到 session。
+**Permission 触发时**：该 session 的气泡**自动展开**为 360×160 的决策卡，显示工具名 + 命令/路径预览 + Allow / Deny / 交给终端 三个按钮。用户决策后通过挂起的 hook socket 同步回写。
 
-### 12.5 输入注入实现（v0.1）
+**AskUserQuestion 触发时**：该 session 的气泡**自动展开**（无需点击）为 360×220 的答题卡，显示 Claude 的提问 + 选项按钮 + 自定义文本框，多问题时分页填写。用户答完后回包带 `updatedInput.answers = { 问题: 答案 }`，Claude 直接拿到结果（不依赖 PTY 注入或终端自动化，跨所有宿主工作）。
 
-宠物气泡的"在 session 内继续提问"需要把文本送回到 AI CLI 进程。Hopet 提供两条路径：
+### 12.5 关于"在气泡里自由输入消息"——v0.1 不做的功能
 
-#### 12.5.1 路径 A：PTY wrapper（首选，仅 Hopet 启动的 session）
+宠物气泡**不提供**"在 idle session 上自由打字然后注入到 Claude/Codex"的入口。原因是 macOS 上没有干净通用的反向 stdin 注入路径：
 
-Hopet 通过点击宠物本体启动 session 时，使用 `hopet-pty` helper 包装 CLI：
+| 候选方案 | 现状 |
+| --- | --- |
+| TIOCSTI ioctl | macOS 11+ 限制 controlling tty，第三方进程 `errno=EACCES` |
+| AppleScript（iTerm2 `write text` / Apple Terminal `keystroke`） | 仅 iTerm / Apple Terminal 适用，VS Code / Cursor / Ghostty / Warp 等都没接口 |
+| CGEvent 全局键盘模拟 | 需 Accessibility 权限 + 把目标窗口切前台，对 IDE 多 pane 场景定位极脆弱、抢用户键盘焦点体验糟糕 |
+| 写 PTY slave 文件 | slave write 走输出方向，不进 stdin |
+| 拿到 IDE 扩展 spawn 的 claude 子进程 PTY master fd | 由 IDE 扩展进程持有，第三方进程不可访问 |
 
-```
-hopet-pty <sessionId> -- claude        # 或 codex
-```
+**唯一两条工程上能闭环的路径**，都要求改启动方式或加额外组件，超出 v0.1 范围：
 
-`hopet-pty` 的职责：
-1. `forkpty(3)` 创建 PTY pair
-2. `exec` 目标 CLI（claude / codex），把它的 stdin/stdout/stderr 接到 PTY slave
-3. 把 PTY master 句柄通过 `~/.hopet/run/pty-<sessionId>.sock` 暴露给 HopetCore
-4. 终端窗口侧用 `script` / 自带 PTY 桥接，让用户依然能看到 CLI 输出并键盘交互
-5. HopetCore 写入 `pty-<sessionId>.sock` 的字节会被 `hopet-pty` 透写到 PTY master，相当于"在终端里替用户敲字"
+- **PTY wrapper（hopet-pty）**：用户用 `hopet-pty claude` 替代 `claude`，Hopet 自己持 PTY master fd，注入随便注入。需要 alias 进 shell rc。Cursor / VS Code 扩展自己 spawn 的 claude 子进程绕开 alias，**这条路径对 IDE 内置 Claude 扩展场景不适用**。
+- **配套 IDE 扩展**：写一个 Hopet 扩展，通过 `vscode.window.activeTerminal.sendText(...)` 注入。要求用户额外装组件，且要研究目标扩展是否暴露了"发消息到当前对话"的公开命令。
 
-注入流程：
-```
-Pet 气泡输入框 → HopetCore → write(pty-<sessionId>.sock, "用户输入\n")
-                            → hopet-pty → PTY master → Claude/Codex stdin
-```
+两条都留待后续版本评估。v0.1 的边界明确：
 
-优势：跨终端 App，无需 Accessibility 权限，无需识别终端窗口位置。
-代价：用户必须通过 Hopet 启动 session（点击宠物 → 选目录 → Hopet 启动 hopet-pty + 终端 App）。
-
-#### 12.5.2 路径 B：Accessibility（兼容外部启动的 session，v0.2 默认）
-
-对于用户在终端中手动 `claude` 起的 session，没有 PTY 句柄。气泡输入降级为：
-
-1. 通过 `tool` + `cwd` 在已知终端 App 中查找匹配窗口（仅支持 Terminal.app / iTerm2 / Ghostty / Warp）
-2. 使用 `AXUIElementCopyAttributeValue` 获得窗口的输入框元素
-3. 通过 `CGEvent` 模拟剪贴板粘贴 + 回车
-
-授权检查：首次使用前检测 Accessibility 权限；未授权 → 弹出 `IOHIDRequestAccess` 引导。
-
-#### 12.5.3 路径 C：剪贴板兜底（任意未授权场景）
-
-两条路径都不可用时（如外部 session + 未授 AX 权限）：
-1. 把用户输入复制到剪贴板
-2. 在气泡上方显示 toast：「已复制，请到对应终端窗口粘贴」
-3. 不假装"已发送"，避免用户误解
-
-#### 12.5.4 v0.1 范围
-
-- ✅ 路径 A（PTY wrapper）— Hopet 启动的 session 必须支持
-- ✅ 路径 C（剪贴板兜底）— 外部 session 默认走这条
-- ⛔ 路径 B（Accessibility）— v0.2 启用
+- ✅ Permission Allow / Deny / 交给终端 — 走 hook socket，跨所有宿主
+- ✅ AskUserQuestion 结构化答题 — 走 hook socket + `updatedInput.answers`，跨所有宿主
+- ✅ 点击宠物本体 → 选目录 + 输入首条命令 → `open -a Terminal` 拉起 + 命令复制到剪贴板（Hopet **没有** 持有这个新 session 的 stdin，所以不是注入而是引导）
+- ❌ 在已有 session 的气泡上自由打字注入消息（即本节讨论的功能）
 
 ---
 
@@ -1010,17 +984,15 @@ Pet 气泡输入框 → HopetCore → write(pty-<sessionId>.sock, "用户输入\
 - [ ] SessionBubble 渲染（环绕布局、cwd / title / elapsed 显示、leader 高亮、AskUserQuestion 自动展开）
 - [ ] PetAggregator（按优先级聚合多 session → 单宠物动画）
 - [ ] NotchWindow 三态 + 无刘海机型降级顶条
-- [ ] **点击宠物本体**：弹出"目录选择器 + 输入"对话框 → `hopet-pty` 启动 CLI 新 session
-- [ ] **点击会话气泡**：展开输入框 → PTY 注入到该 session（Hopet 启动的 session）
-- [ ] **AskUserQuestion 触发**：对应气泡自动展开为对话气泡，回答经 PTY 注入
-- [ ] `hopet-pty` PTY wrapper helper
-- [ ] 剪贴板兜底（外部启动的 session）
+- [ ] **点击宠物本体**：弹出"目录选择器 + 输入"对话框 → `open -a Terminal` 拉起 + 命令复制到剪贴板
+- [ ] **PermissionRequest 气泡决策**：Allow / Deny / 交给终端（hook socket 同步回包）
+- [ ] **AskUserQuestion 气泡答题**：选项按钮 + 自定义文本（hook 回包带 `updatedInput.answers`，跨所有宿主）
 - [ ] 偏好面板骨架（Overview / Themes 只读 / Bindings 全局单一 / Hooks / Behavior / Notifications / About）
 - [ ] Hook 一键安装 / 卸载 + HookDoctor（含 SessionEnd / PostToolUseFailure / StopFailure 等新 hook）
 
 **Explicit out (v0.1 不交付)**：
 
-- ⛔ Accessibility 注入路径（外部启动 session 仅剪贴板兜底，v0.2 加 AX）
+- ⛔ **气泡里自由打字往已有 session 注入消息**（详见 §12.5；macOS 无干净通用注入路径，需 PTY wrapper 或 IDE 扩展，留待后续版本评估）
 - ⛔ `.hopettheme` 第三方主题导入
 - ⛔ 按 AI 工具分别绑定主题（v0.1 全局单一）
 - ⛔ Codex 细粒度状态（v0.1 仅完成通知实验性）
@@ -1031,7 +1003,7 @@ Pet 气泡输入框 → HopetCore → write(pty-<sessionId>.sock, "用户输入\
 ### v0.2（增强 — 4–6 周）
 
 - [ ] Codex 完整 hooks 适配（待 Codex 发布或 wrapper 方案）
-- [ ] Accessibility 注入路径（兼容外部启动的 session）
+- [ ] 评估"气泡注入消息到已有 session"两条候选路径（PTY wrapper / IDE 扩展），择一落地
 - [ ] MCP `Elicitation` / `ElicitationResult` 路由到 ask_user / ask_user_resolved
 - [ ] 气泡拖拽重排（用户自定义环绕顺序）
 - [ ] `.hopettheme` 导入 + 主题管理 UI（含 §9.3.1 zip slip 防护）

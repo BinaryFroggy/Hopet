@@ -56,9 +56,6 @@ public final class PetWindowController {
             onPetClick: { [weak self] in
                 self?.inputCoordinator.openNewSessionDialog(for: tool)
             },
-            onSubmit: { [weak self] sessionId, text in
-                self?.inputCoordinator.submit(text: text, toSessionId: sessionId)
-            },
             onResolvePermission: { [weak self] sessionId, requestId, decision in
                 self?.inputCoordinator.resolvePermission(
                     sessionId: sessionId,
