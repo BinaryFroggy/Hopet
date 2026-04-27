@@ -53,9 +53,6 @@ public final class PetWindowController {
             registry: registry,
             themes: themes,
             tool: tool,
-            onPetClick: { [weak self] in
-                self?.inputCoordinator.openNewSessionDialog(for: tool)
-            },
             onResolvePermission: { [weak self] sessionId, requestId, decision in
                 self?.inputCoordinator.resolvePermission(
                     sessionId: sessionId,

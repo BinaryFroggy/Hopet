@@ -26,7 +26,7 @@
 | 桌面宠物（**每个 AI 工具一只**：Claude / Codex 各 1，含拖拽、位置记忆） | ✅ | ✅ |
 | 会话气泡（每只宠物周围环绕，每个气泡 = 1 个活跃 session） | ✅ 默认显示一层 cwd / 标题 / 距上次状态变更耗时 | ✅ + 拖拽重排 |
 | 状态聚合（多会话 → 单宠物按优先级聚合，详见 [hooks-and-priority.md §2](./hooks-and-priority.md#2-petstate-优先级)） | ✅ | ✅ |
-| 点击宠物本体 → 弹出"目录选择 + 输入"对话框 → 新开终端启动 CLI | ✅ | ✅ |
+| 点击宠物本体 → 弹出"目录选择 + 输入"对话框 → 新开终端启动 CLI | ⛔ v0.1 不交付（详见 §12.5） | 视用户需求决定 |
 | 点击会话气泡 → 展开**只读**状态卡 / 在 Permission/AskUserQuestion 挂起时展开**可交互**卡片 | ✅ Permission Allow-Deny + AskUserQuestion 结构化答题（hook 同步回包，跨所有宿主）；**不**支持气泡里自由输入消息（详见 §12.5） | 评估 PTY wrapper / IDE 扩展两条路 |
 | AskUserQuestion 触发 → 该 session 气泡自动展开为对话气泡，原位回答 | ✅ 通过 PermissionRequest hook + `updatedInput.answers` | ✅ |
 | 内置默认 Hopi 主题 | ✅ | ✅ |
@@ -118,7 +118,7 @@ flowchart TD
 
 - **单进程**：Hopet.app 是一个 macOS App Bundle，所有子系统运行在同一进程内。
 - **无后台 launchd**：v0.1 不注册 LaunchAgent，用户关闭 App 即停止服务；App 随系统启动通过标准 "登录项" 实现。
-- **子进程**：仅在点击气泡"新开会话"时 `NSWorkspace.open` 拉起终端 App + CLI，子进程与 Hopet.app 解耦。
+- **子进程**：v0.1 无；hopet-emit 是 hook 触发的独立短命进程，不归 Hopet 管。
 
 ---
 
@@ -853,7 +853,7 @@ debug 日志（`advanced.logLevel = debug`）可记录截断后的 payload 字�
 ### 10.4 权限
 
 - **Permission / AskUserQuestion 答题**：完全走 hook socket 同步回包通道，**不需要任何 macOS 权限**（不依赖 Accessibility / Automation）。
-- **Apple Events / Automation**：仅 "点击宠物本体新开 CLI session" 时调用 `open -a Terminal`，由系统自动按需弹授权。
+- **Apple Events / Automation**：v0.1 不需要（不再调用 `open -a Terminal`）。
 - **通知**：横幅提醒需 User Notifications 授权（v0.x 未打包成 .app 时降级到 NSLog）。
 - **气泡里自由打字往 session 发消息：v0.1 不做**（详见 §12.5）。
 
@@ -963,8 +963,8 @@ SpriteKit 实现为 `SpriteKitPetRenderer`，后续可新增 `Live2DPetRenderer`
 
 - ✅ Permission Allow / Deny / 交给终端 — 走 hook socket，跨所有宿主
 - ✅ AskUserQuestion 结构化答题 — 走 hook socket + `updatedInput.answers`，跨所有宿主
-- ✅ 点击宠物本体 → 选目录 + 输入首条命令 → `open -a Terminal` 拉起 + 命令复制到剪贴板（Hopet **没有** 持有这个新 session 的 stdin，所以不是注入而是引导）
 - ❌ 在已有 session 的气泡上自由打字注入消息（即本节讨论的功能）
+- ❌ 点击宠物本体 → 选目录 + 输入首条命令 → 启动新终端会话（与"自由输入"是同类问题：Hopet 无法持有新 session 的 stdin，最多只能复制命令到剪贴板让用户粘贴；这种"看似引导实则脱节"的体验已经从 v0.1 移除）
 
 ---
 
@@ -984,7 +984,6 @@ SpriteKit 实现为 `SpriteKitPetRenderer`，后续可新增 `Live2DPetRenderer`
 - [ ] SessionBubble 渲染（环绕布局、cwd / title / elapsed 显示、leader 高亮、AskUserQuestion 自动展开）
 - [ ] PetAggregator（按优先级聚合多 session → 单宠物动画）
 - [ ] NotchWindow 三态 + 无刘海机型降级顶条
-- [ ] **点击宠物本体**：弹出"目录选择器 + 输入"对话框 → `open -a Terminal` 拉起 + 命令复制到剪贴板
 - [ ] **PermissionRequest 气泡决策**：Allow / Deny / 交给终端（hook socket 同步回包）
 - [ ] **AskUserQuestion 气泡答题**：选项按钮 + 自定义文本（hook 回包带 `updatedInput.answers`，跨所有宿主）
 - [ ] 偏好面板骨架（Overview / Themes 只读 / Bindings 全局单一 / Hooks / Behavior / Notifications / About）

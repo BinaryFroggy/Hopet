@@ -30,17 +30,22 @@ swift run hopet-emit --help # CLI helper（hooks 用它把事件投递到 socket
 - 刘海条三态 / 无刘海机型降级顶条
 - 默认 "Hopi" 主题（无图，仅状态文字 + 颜色 token）
 
-## 关于"在气泡里自由输入消息发到 session"
+## 关于"用 Hopet 给 Claude 发消息"
 
-**v0.1 不做这个功能。** macOS 没有可靠的跨终端宿主反向 stdin 注入路径——
-TIOCSTI 受 controlling tty 限制、AppleScript 仅 iTerm/Terminal 支持、IDE 扩展自己 spawn
-出来的 claude 子进程的 PTY master fd 第三方进程拿不到。强行做只能在很窄的场景下"看着像通了"。
+**v0.1 不做这件事**——既不支持气泡里自由打字注入到已有 session，也不支持点击宠物本体启动新会话。
+两件事是同一类问题：macOS 没有可靠的跨终端宿主反向 stdin 注入路径（TIOCSTI 受 controlling tty
+限制、AppleScript 仅 iTerm/Terminal、IDE 扩展自己 spawn 的 claude 子进程的 PTY master fd
+第三方进程拿不到）；即便用"复制到剪贴板让用户粘贴"作引导，体验也是脱节的。
 
-要在气泡里"打字给 Claude"，目前只有两条路真正可行：(a) 提供 `hopet-pty` wrapper 让用户用
-`hopet-pty claude` 启动，绑定 Hopet 起的 session；(b) 写配套 IDE 扩展。两条都需要改用户启动
-方式或额外组件，留待后续版本评估。
+这不是 Hopet 的核心价值——它是状态感知层，不是 Claude 的输入 UI。要给 Claude 发新消息，照常在
+你自己的终端 / Cursor / VS Code 内嵌终端打 `claude`、`codex` 即可，Hopet 通过 hook 自动感知
+所有 session 的状态。
 
-Permission 与 AskUserQuestion 走 hook 同步通道，跟终端注入无关，因此跨宿主都能正常工作。
+例外是 **Claude 主动开口**的两个场景：
+- **Permission Allow/Deny**：跨所有宿主工作
+- **AskUserQuestion 结构化答题**：跨所有宿主工作
+
+它们走 hook 同步通道（协议级），跟终端注入无关。
 
 ## v0.1 暂未实现
 

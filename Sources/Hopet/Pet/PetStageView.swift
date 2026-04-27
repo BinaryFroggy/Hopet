@@ -5,7 +5,6 @@ public struct PetStageView: View {
     @ObservedObject var registry: SessionRegistry
     @ObservedObject var themes: ThemeStore
     let tool: AITool
-    let onPetClick: () -> Void
     let onResolvePermission: (String, String, String) -> Void  // (sessionId, requestId, decision)
     /// (sessionId, requestId, answers, cancel)
     let onResolveAskUser: (String, String, [String: String], Bool) -> Void
@@ -18,14 +17,12 @@ public struct PetStageView: View {
         registry: SessionRegistry,
         themes: ThemeStore,
         tool: AITool,
-        onPetClick: @escaping () -> Void,
         onResolvePermission: @escaping (String, String, String) -> Void,
         onResolveAskUser: @escaping (String, String, [String: String], Bool) -> Void
     ) {
         self.registry = registry
         self.themes = themes
         self.tool = tool
-        self.onPetClick = onPetClick
         self.onResolvePermission = onResolvePermission
         self.onResolveAskUser = onResolveAskUser
     }
@@ -80,7 +77,6 @@ public struct PetStageView: View {
                 state: pet.aggregatedState,
                 theme: themes.activeTheme
             )
-            .onTapGesture { onPetClick() }
             .zIndex(5)
         }
         .frame(width: 720, height: 720)

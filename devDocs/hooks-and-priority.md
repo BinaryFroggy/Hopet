@@ -140,7 +140,7 @@ func recomputeAggregatedState(for tool: AITool) {
 | 单个 session 短暂闪过 `completed`（2s timer） | 仅当该 session 是 leader 时，宠物才会显示 completed 庆祝；否则宠物维持 leader 的状态、该 session 气泡自身播放完成动画 |
 | 新 session 接入瞬间为 `idle`（session_start） | 不影响宠物聚合（idle 优先级最低） |
 | 宠物 P0 askUser 期间，另一 session 完成（completed） | 宠物保持 askUser 不变；该完成 session 的气泡自播放小庆祝、2s 后回 idle |
-| AskUserQuestion 触发时 | 该 session 气泡自动展开为答题卡，用户作答后通过挂起的 PermissionRequest hook 同步回包 `updatedInput.answers`，跨所有终端宿主工作（详见 [features.md §3.4.3](./features.md)） |
+| AskUserQuestion 触发时 | 该 session 气泡自动展开为答题卡，用户作答后通过挂起的 PermissionRequest hook 同步回包 `updatedInput.answers`，跨所有终端宿主工作（详见 [features.md §3.4.2](./features.md)） |
 
 ### 3.4 反例（明确不做的事）
 
