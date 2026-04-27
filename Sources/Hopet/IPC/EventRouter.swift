@@ -170,12 +170,21 @@ public final class EventRouter {
                        ?? event.stringValue(forKey: "message")
                        ?? "Claude 在等你回答"
                 s.pendingQuestion = q
-            case .askUserResolved:
-                s.pendingQuestion = nil
-                s.pendingAskUser = nil
             default:
                 break
             }
+        }
+
+        // 外部（终端 UI / Claude 自身）处理完待决策的信号：
+        // - postToolUse：上次 PermissionRequest 对应的工具已经真正执行（用户在终端 allow）。
+        // - error：工具失败（包括用户在终端 deny / 终端取消）。
+        // - askUserResolved：AskUserQuestion 已被回答（不管在哪一侧）。
+        // 三种情况下都把气泡上的待决策清掉，避免气泡停留成"假活"按钮。
+        switch event.event {
+        case .postToolUse, .error, .askUserResolved:
+            permissionPrompter.cancelPending(sessionId: event.sessionId)
+        default:
+            break
         }
 
         if let next = SessionStateMachine.nextState(

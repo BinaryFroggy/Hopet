@@ -8,15 +8,11 @@ import Foundation
 ///
 /// 两条路径共用一张 `pending: requestId → reply` 表，由不同的 enqueue/resolve 入口区分。
 ///
-/// 自动让权：超过 `Self.staleTimeout`（略早于 hopet-emit 的 30s 接收超时）用户没决策，
-/// PermissionPrompter 会主动回 `decision="ask"` 把控制权交还终端 UI，并清掉气泡上的待决策项。
-/// 否则气泡上的按钮会变成"点了没反应"——SocketServer 30s 兜底 `reply(nil)` 后
-/// `ReplyGuard.fired=true`，后续 reply 会被静默吞掉。
+/// 不主动超时：用户不点 → 气泡一直显示。hopet-emit 30s 后自己会 fall back 到终端 UI（输出 `{}`），
+/// 之后用户在终端里 allow/deny 完，Claude 会触发 PostToolUse / PostToolUseFailure，
+/// EventRouter 收到这些事件时调 `cancelPending(sessionId:)` 主动把对应气泡清掉。
 @MainActor
 public final class PermissionPrompter {
-    /// 自动让权超时；必须 < hopet-emit `SO_RCVTIMEO`（30s），否则 socket 已被对端关闭再写也无效。
-    private static let staleTimeout: TimeInterval = 28
-
     private unowned let registry: SessionRegistry
     private var pending: [String: @Sendable (Data?) -> Void] = [:]
 
@@ -46,7 +42,6 @@ public final class PermissionPrompter {
                 filePath: filePath
             )
         }
-        scheduleAutoExpire(sessionId: event.sessionId, requestId: requestId)
     }
 
     /// 用户在气泡上点击决策后调用。decision ∈ {"allow", "deny", "ask"}。
@@ -98,7 +93,6 @@ public final class PermissionPrompter {
                 originalToolInputJSON: originalJSON
             )
         }
-        scheduleAutoExpire(sessionId: event.sessionId, requestId: requestId)
     }
 
     /// 用户提交答案。answers 形如 `{ "问题文案": "回答" }`，对应 questions 顺序映射。
@@ -144,31 +138,33 @@ public final class PermissionPrompter {
         }
     }
 
-    // MARK: - Auto-expire
+    // MARK: - External resolution
 
-    /// 入队后排一个本地超时：若用户始终没点击，主动回 ask 把决策权交还终端 UI，
-    /// 并清掉气泡上的待决策项，避免按钮变成"假活"。
-    private func scheduleAutoExpire(sessionId: String, requestId: String) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.staleTimeout) { [weak self] in
-            self?.expireIfStale(sessionId: sessionId, requestId: requestId)
-        }
-    }
+    /// EventRouter 在收到 postToolUse / error / askUserResolved 时调用：
+    /// 表示该 session 上的待决策已经被外部（终端 UI / Claude 自身）处理过，
+    /// Hopet 这边只需把对应 pending 表项 + 气泡上的待决策标记清掉即可。
+    /// 调 reply(nil) 让 SocketServer 关闭 fd —— 既释放资源，又让 hopet-emit
+    /// 端的阻塞 read 读到 EOF 后输出 `{}` 收尾退出。
+    public func cancelPending(sessionId: String) {
+        guard let session = registry.session(sessionId) else { return }
+        // 没有任何待决策项时直接退出，避免每个 postToolUse / error 都触发 registry.patch 引发全树重渲染。
+        guard session.pendingPermission != nil
+            || session.pendingAskUser != nil
+            || session.pendingQuestion != nil else { return }
 
-    private func expireIfStale(sessionId: String, requestId: String) {
-        guard let reply = pending.removeValue(forKey: requestId) else { return }
         let sid = sessionId.hopetShortId
-        let rid = requestId.hopetShortId
-        HopetLog.trace("auto-expire", "sid=\(sid) reqId=\(rid) decision=ask")
-        let payload = PermissionResponse(requestId: requestId, decision: "ask")
-        reply(encodeResponse(payload))
-
+        if let pp = session.pendingPermission, let reply = pending.removeValue(forKey: pp.requestId) {
+            HopetLog.trace("auto-cancel", "sid=\(sid) reqId=\(pp.requestId.hopetShortId) (resolved externally)")
+            reply(nil)
+        }
+        if let pa = session.pendingAskUser, let reply = pending.removeValue(forKey: pa.requestId) {
+            HopetLog.trace("auto-cancel", "sid=\(sid) reqId=\(pa.requestId.hopetShortId) (resolved externally)")
+            reply(nil)
+        }
         registry.patch(sessionId) { s in
-            if s.pendingPermission?.requestId == requestId {
-                s.pendingPermission = nil
-            }
-            if s.pendingAskUser?.requestId == requestId {
-                s.pendingAskUser = nil
-            }
+            s.pendingPermission = nil
+            s.pendingAskUser = nil
+            s.pendingQuestion = nil
         }
     }
 

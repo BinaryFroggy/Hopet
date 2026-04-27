@@ -37,10 +37,10 @@ public struct PetStageView: View {
     }
 
     public var body: some View {
-        ZStack {
+        let slots = BubbleLayout.slots(count: sessions.count)
+        return ZStack {
             // 环绕气泡先渲染（在宠物之后避免遮挡，但 zIndex 控制叠放）
             ForEach(Array(zip(sessions.indices, sessions)), id: \.1.id) { idx, session in
-                let slots = BubbleLayout.slots(count: sessions.count)
                 let slot = slots[idx]
                 let bubble = makeBubble(session: session, slot: slot)
                 // 有任何待决策项时强制展开（这是用户必须看到的）。
@@ -91,7 +91,7 @@ public struct PetStageView: View {
     /// 部分卡片高度自适应内容，这里取保守上限，仅用于外推距离的"避让"计算 ——
     /// 估高一点只会让卡片离宠物更远，不会遮挡；估低则可能压到宠物。
     private func expandedSize(for session: Session) -> CGSize {
-        if session.pendingPermission != nil { return CGSize(width: 360, height: 200) }
+        if session.pendingPermission != nil { return CGSize(width: 380, height: 240) }
         if session.pendingAskUser != nil { return CGSize(width: 360, height: 220) }
         if session.pendingQuestion != nil { return CGSize(width: 320, height: 130) }
         return CGSize(width: 360, height: 96)

@@ -333,10 +333,10 @@ frame.withUnsafeBytes { raw in
 // 非 permission_ask：fire-and-forget，立刻退出。
 guard needsResponse else { exit(0) }
 
-// permission_ask 路径：等待 Hopet 的决策（最多 30s），然后把 Claude
-// PermissionRequest hook 期望的 JSON 写到 stdout 让 Claude 接受。
-var rcvto = timeval(tv_sec: 30, tv_usec: 0)
-setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &rcvto, socklen_t(MemoryLayout<timeval>.size))
+// permission_ask 路径：阻塞等 Hopet 的决策，没有本地超时 ——
+// 用户可能去做别的事很久才回来点气泡，超时只会徒增"假活按钮"的体验。
+// Hopet 进程退出时 socket 关闭，下面的 read 会读到 EOF / 错误后由 emitDecision(nil)
+// 兜底输出 `{}` 让 Claude 走自身 UI。
 
 func recvAll(_ fd: Int32, count: Int) -> Data? {
     var buf = [UInt8](repeating: 0, count: count)

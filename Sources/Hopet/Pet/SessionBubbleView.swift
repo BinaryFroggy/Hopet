@@ -50,13 +50,16 @@ public struct SessionBubbleView: View {
     /// 多问题时的当前页索引。单问题时恒为 0。
     @State private var elicitationIndex: Int = 0
 
+    /// 肥皂泡"炸开"动画期间渲染的粒子。
+    @State private var popParticles: [PopParticle] = []
+
     public var body: some View {
         ZStack {
             if bubble.expanded {
                 expandedCard
                     .transition(.asymmetric(
                         insertion: .scale(scale: 0.35, anchor: .center).combined(with: .opacity),
-                        removal: .scale(scale: 0.35, anchor: .center).combined(with: .opacity)
+                        removal: .bubblePopOut
                     ))
             } else {
                 collapsedDot
@@ -65,8 +68,70 @@ public struct SessionBubbleView: View {
                         removal: .scale(scale: 0.6, anchor: .center).combined(with: .opacity)
                     ))
             }
+
+            // 炸开粒子层：从中心向外飞溅 + 缩小淡出。
+            ForEach(popParticles) { p in
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.85), bubble.state.accentColor.opacity(0.55)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .overlay(
+                        Circle().stroke(Color.white.opacity(0.7), lineWidth: 0.4)
+                    )
+                    .frame(width: p.size, height: p.size)
+                    .blur(radius: 0.4)
+                    .shadow(color: bubble.state.accentColor.opacity(0.35), radius: 1.5)
+                    .offset(x: p.offsetX, y: p.offsetY)
+                    .opacity(p.opacity)
+                    .scaleEffect(p.scale)
+            }
+            .allowsHitTesting(false)
         }
-        .animation(.spring(response: 0.32, dampingFraction: 0.78), value: bubble.expanded)
+        .animation(.spring(response: 0.34, dampingFraction: 0.78), value: bubble.expanded)
+    }
+
+    /// 触发"炸开 → 执行 action"：先散粒子，再调闭包。所有让大泡泡消失的入口都走它。
+    /// - 默认普通态点击收起：`popThen { onTap() }`
+    /// - 决策类按钮：`popThen { onResolvePermission(...) }` / `popThen { onResolveAskUser(...) }`
+    /// - 关闭按钮：`popThen { onDismiss() }`
+    private func popThen(_ action: @escaping () -> Void) {
+        guard popParticles.isEmpty else { return }  // 防抖：动画期间忽略二次触发
+        let count = 10
+        popParticles = (0..<count).map { i in
+            PopParticle(
+                angle: Double(i) * (360.0 / Double(count)) + Double.random(in: -14...14),
+                size: CGFloat.random(in: 5...11),
+                offsetX: 0,
+                offsetY: 0,
+                opacity: 1.0,
+                scale: 0.6
+            )
+        }
+
+        // 粒子飞溅 + 淡出
+        withAnimation(.easeOut(duration: 0.5)) {
+            for i in popParticles.indices {
+                let radians = popParticles[i].angle * .pi / 180
+                let dist = CGFloat.random(in: 55...110)
+                popParticles[i].offsetX = CGFloat(cos(radians)) * dist
+                popParticles[i].offsetY = CGFloat(sin(radians)) * dist
+                popParticles[i].opacity = 0
+                popParticles[i].scale = 1.2
+            }
+        }
+
+        // 让大泡泡稍微滞后开始消失，营造"绽开 → 散开"的层次。
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+            action()
+        }
+        // 动画结束后清理粒子，避免反复累积。
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            popParticles = []
+        }
     }
 
     private var collapsedDot: some View {
@@ -79,11 +144,16 @@ public struct SessionBubbleView: View {
         }()
 
         return VStack(spacing: 1) {
-            Text(bubble.displayCwd)
-                .font(.system(size: 10, weight: .semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-                .truncationMode(.middle)
+            HStack(spacing: 3) {
+                Circle()
+                    .fill(bubble.state.accentColor)
+                    .frame(width: 5, height: 5)
+                Text(bubble.displayCwd)
+                    .font(.system(size: 10, weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .truncationMode(.middle)
+            }
             HStack(spacing: 2) {
                 Image(systemName: isRunning ? "play.fill" : "clock")
                     .font(.system(size: 7))
@@ -93,15 +163,14 @@ public struct SessionBubbleView: View {
             }
             .foregroundStyle(.secondary)
         }
+        .modifier(BubbleTextLegibility())
         .padding(.horizontal, 6)
         .frame(width: 64, height: 64)
-        .background(
-            Circle().fill(.ultraThinMaterial)
-        )
-        .overlay(
-            Circle().stroke(bubble.state.accentColor, lineWidth: isLeader ? 2.5 : 1.5)
-        )
-        .shadow(radius: 3, y: 1)
+        .modifier(SoapBubbleChrome(
+            shape: .circle,
+            accent: bubble.state.accentColor,
+            emphasis: isLeader ? 1.4 : 1.0
+        ))
         .contentShape(Circle())
         .onTapGesture { onTap() }
     }
@@ -125,49 +194,93 @@ public struct SessionBubbleView: View {
     /// 权限请求卡片（PermissionRequest hook 触发）。
     private var permissionCard: some View {
         let pp = bubble.pendingPermission!
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("🔐 请求权限：\(pp.toolName)")
+        return VStack(alignment: .leading, spacing: 14) {
+            // Header：工具名（caps tracking）+ 隐藏式关闭。
+            HStack(spacing: 8) {
+                Image(systemName: "shield.lefthalf.filled")
                     .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(bubble.state.accentColor)
+                Text(pp.toolName.uppercased())
+                    .font(.system(size: 10, weight: .semibold))
+                    .tracking(0.8)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 Spacer()
-                Button(action: { onResolvePermission("ask") }) {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                Button(action: { popThen { onResolvePermission("ask") } }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 18, height: 18)
+                        .background(Circle().fill(Color.primary.opacity(0.06)))
                 }
                 .buttonStyle(.plain)
                 .help("交还终端处理")
             }
+
+            // 主标题
+            Text("Claude 想执行此操作")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.primary)
+
+            // 详情：command / filePath
             if let cmd = pp.command {
-                Text(cmd)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.primary)
-                    .lineLimit(3)
-                    .padding(6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.12))
-                    )
+                detailBlock {
+                    Text(cmd)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(.primary)
+                        .lineLimit(5)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             } else if let fp = pp.filePath {
-                Text("📄 \(fp)")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
+                detailBlock {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Image(systemName: "doc.text")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        Text(fp)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(.primary)
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
             }
+
+            // 操作按钮：所有按钮都先播炸开动画再回调
             HStack(spacing: 8) {
-                Button("拒绝") { onResolvePermission("deny") }
-                    .buttonStyle(.bordered)
-                    .tint(.red)
+                Button("拒绝") { popThen { onResolvePermission("deny") } }
+                    .buttonStyle(GlassPillButtonStyle(tint: .red, prominent: false))
                 Spacer()
-                Button("交给终端") { onResolvePermission("ask") }
-                    .buttonStyle(.bordered)
-                Button("允许") { onResolvePermission("allow") }
+                Button("交还终端") { popThen { onResolvePermission("ask") } }
+                    .buttonStyle(GlassPillButtonStyle(tint: .gray, prominent: false))
+                Button("允许") { popThen { onResolvePermission("allow") } }
                     .keyboardShortcut(.return, modifiers: [])
-                    .buttonStyle(.borderedProminent)
-                    .tint(.green)
+                    .buttonStyle(GlassPillButtonStyle(tint: .green, prominent: true))
             }
+            .padding(.top, 2)
         }
-        .padding(12)
-        .frame(width: 360)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+        .frame(width: 380)
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// 详情块的统一容器（底纹 + 细边）。
+    @ViewBuilder
+    private func detailBlock<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.primary.opacity(0.05))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
+            )
     }
 
     /// 结构化 AskUserQuestion 卡片：用户答完后通过挂起的 socket 同步回写 updatedInput.answers。
@@ -184,7 +297,7 @@ public struct SessionBubbleView: View {
                     .font(.system(size: 12, weight: .semibold))
                 Spacer()
                 Button(action: {
-                    onResolveAskUser([:], true)  // cancel
+                    popThen { onResolveAskUser([:], true) }  // cancel：先炸开再取消
                 }) {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
@@ -269,10 +382,10 @@ public struct SessionBubbleView: View {
             elicitationIndex = idx + 1
             return
         }
-        // 提交：把已收集的 answers 全部 trim 后回写。
+        // 最后一题提交：先炸开再回写答案，气泡随后消失。
         let trimmed = elicitationAnswers.mapValues { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.value.isEmpty }
-        onResolveAskUser(trimmed, false)
+        popThen { onResolveAskUser(trimmed, false) }
         elicitationAnswers.removeAll()
         elicitationIndex = 0
     }
@@ -286,7 +399,7 @@ public struct SessionBubbleView: View {
                 Text("❓ 在等你回答")
                     .font(.system(size: 12, weight: .semibold))
                 Spacer()
-                Button(action: onDismiss) {
+                Button(action: { popThen { onDismiss() } }) {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -315,7 +428,7 @@ public struct SessionBubbleView: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 if bubble.hasTitle {
-                    Text("📁 \(bubble.displayCwd)")
+                    Text(bubble.displayCwd)
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -327,7 +440,7 @@ public struct SessionBubbleView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
                     // 没有真实标题：只渲染目录，不再补占位"标题"行，避免重复。
-                    Text("📁 \(bubble.displayCwd)")
+                    Text(bubble.displayCwd)
                         .font(.system(size: 13, weight: .semibold))
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -337,9 +450,10 @@ public struct SessionBubbleView: View {
             Spacer(minLength: 8)
 
             VStack(alignment: .trailing, spacing: 3) {
-                Text(bubble.state.badgeText)
+                // 状态文字保持中性色：状态色由左侧小圆点承担，文字不再夹带 emoji 也不再换色。
+                Text(bubble.state.badgeLabel)
                     .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(bubble.state.accentColor)
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .fixedSize()
                 Text(stateDurationPhrase)
@@ -349,51 +463,285 @@ public struct SessionBubbleView: View {
                     .fixedSize()
             }
         }
+        .modifier(BubbleTextLegibility())
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
         .frame(width: 360, alignment: .leading)
         .frame(minHeight: 76)
         .contentShape(Rectangle())
-        .onTapGesture { onTap() }
+        .onTapGesture { popThen { onTap() } }
     }
 }
 
-/// 普通态使用的"横向不规则大气泡"外壳：四角不等的圆角矩形 + 半透明材质 + 状态色描边。
+/// 让文字在透明肥皂泡里于任何背景色下都可读：
+/// 暗影压底（暗背景下也能看清文字轮廓）+ 极淡亮影提边（白底下文字不会"消失"）。
+private struct BubbleTextLegibility: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .shadow(color: Color.black.opacity(0.45), radius: 1.4, x: 0, y: 0.5)
+            .shadow(color: Color.white.opacity(0.22), radius: 0.7, x: 0, y: -0.3)
+    }
+}
+
+/// 肥皂泡炸开动画期间的单个水珠粒子。
+private struct PopParticle: Identifiable {
+    let id = UUID()
+    let angle: Double      // 飞溅方向（度）
+    let size: CGFloat
+    var offsetX: CGFloat
+    var offsetY: CGFloat
+    var opacity: Double
+    var scale: CGFloat
+}
+
+/// 大泡泡退出时的"绽开"过渡：放大 + 模糊 + 淡出。配合粒子层模拟肥皂泡炸开。
+private struct BubbleBlurModifier: ViewModifier {
+    let blur: CGFloat
+    func body(content: Content) -> some View {
+        content.blur(radius: blur)
+    }
+}
+
+private extension AnyTransition {
+    static var bubblePopOut: AnyTransition {
+        .scale(scale: 1.45, anchor: .center)
+            .combined(with: .opacity)
+            .combined(with: .modifier(
+                active: BubbleBlurModifier(blur: 10),
+                identity: BubbleBlurModifier(blur: 0)
+            ))
+    }
+}
+
+/// 普通态使用的"横向不规则大气泡"外壳：稳重半透底 + 轻状态色染色 + 柔和模糊光晕。
+/// 与折叠态的 `SoapBubbleChrome` 分离：展开态优先保证文字可读，不放高光斑/薄膜彩虹环之类装饰。
 private struct IrregularBubbleChrome: ViewModifier {
     let accent: Color
 
     private var shape: UnevenRoundedRectangle {
         UnevenRoundedRectangle(
-            topLeadingRadius: 28,
-            bottomLeadingRadius: 18,
-            bottomTrailingRadius: 32,
-            topTrailingRadius: 22,
+            topLeadingRadius: 32,
+            bottomLeadingRadius: 22,
+            bottomTrailingRadius: 36,
+            topTrailingRadius: 26,
             style: .continuous
         )
     }
 
     func body(content: Content) -> some View {
         content
-            .background(shape.fill(.ultraThinMaterial))
-            .overlay(shape.stroke(accent, lineWidth: 2))
-            .shadow(radius: 8, y: 4)
+            .background(
+                ZStack {
+                    shape.fill(Color.white.opacity(0.40))
+                    shape.fill(accent.opacity(0.10))
+                    shape.fill(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.10), Color.white.opacity(0)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                }
+                .compositingGroup()
+            )
+            .overlay(
+                shape.stroke(Color.white.opacity(0.28), lineWidth: 0.6)
+                    .blur(radius: 0.5)
+            )
+            .overlay(
+                shape.stroke(Color.white.opacity(0.16), lineWidth: 1.4)
+                    .blur(radius: 6)
+            )
+            .shadow(color: accent.opacity(0.18), radius: 8, x: 0, y: 3)
+            .shadow(color: Color.black.opacity(0.10), radius: 4, x: 0, y: 1)
     }
 }
 
-/// 决策类卡片（权限/AskUser/旧 fire-and-forget）沿用稳重的圆角矩形外壳。
+/// 肥皂泡风格外壳：背景几乎完全透明，靠光泽 rim + 左上反光斑 + 底部状态色辉光"显形"。
+/// 折叠态用 `.circle`，展开横向气泡用 `.irregular(...)`。决策类卡片走 `ExpandedCardChrome`，保留稳重风格。
+private struct SoapBubbleChrome: ViewModifier {
+    enum Shape {
+        case circle
+        case irregular(topLeading: CGFloat, topTrailing: CGFloat, bottomLeading: CGFloat, bottomTrailing: CGFloat)
+    }
+
+    let shape: Shape
+    let accent: Color
+    /// 描边粗度倍率（leader 状态下放大）。
+    let emphasis: CGFloat
+
+    func body(content: Content) -> some View {
+        // .plusLighter 让所有"光"层叠加只增亮不变浑浊，模拟肥皂泡多次反光。
+        content
+            .background(
+                ZStack {
+                    fill(Color.white.opacity(0.26))
+                    fill(accent.opacity(0.08))
+                    fill(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.10), Color.white.opacity(0)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    fill(
+                        RadialGradient(
+                            colors: [accent.opacity(0.22), accent.opacity(0.04), Color.clear],
+                            center: UnitPoint(x: 0.7, y: 0.85),
+                            startRadius: 0,
+                            endRadius: 90
+                        )
+                    )
+                    .blendMode(.plusLighter)
+                    stroke(
+                        AngularGradient(
+                            colors: [
+                                Color(red: 0.85, green: 0.95, blue: 1.0).opacity(0.30),
+                                accent.opacity(0.30),
+                                Color(red: 1.0, green: 0.85, blue: 0.95).opacity(0.30),
+                                Color.white.opacity(0.34),
+                                Color(red: 0.78, green: 1.0, blue: 0.92).opacity(0.30),
+                                accent.opacity(0.34),
+                                Color(red: 0.85, green: 0.95, blue: 1.0).opacity(0.30)
+                            ],
+                            center: .center
+                        ),
+                        lineWidth: 1.8
+                    )
+                    .blur(radius: 3.2)
+                    .blendMode(.plusLighter)
+                    fill(
+                        RadialGradient(
+                            colors: [
+                                Color.white.opacity(0.32),
+                                Color.white.opacity(0.10),
+                                Color.white.opacity(0)
+                            ],
+                            center: UnitPoint(x: 0.26, y: 0.20),
+                            startRadius: 0,
+                            endRadius: 36
+                        )
+                    )
+                    .blendMode(.plusLighter)
+                    fill(
+                        RadialGradient(
+                            colors: [
+                                Color.white.opacity(0.18),
+                                Color.white.opacity(0.05),
+                                Color.white.opacity(0)
+                            ],
+                            center: UnitPoint(x: 0.78, y: 0.78),
+                            startRadius: 0,
+                            endRadius: 16
+                        )
+                    )
+                    .blendMode(.plusLighter)
+                }
+                .compositingGroup()
+            )
+            .overlay(
+                stroke(Color.white.opacity(0.14), lineWidth: 1.2 * emphasis)
+                    .blur(radius: 6.5)
+            )
+            .shadow(color: accent.opacity(0.18), radius: 7, x: 0, y: 3)
+            .shadow(color: Color.black.opacity(0.07), radius: 3, x: 0, y: 1)
+    }
+
+    @ViewBuilder
+    private func fill<S: ShapeStyle>(_ style: S) -> some View {
+        switch shape {
+        case .circle:
+            Circle().fill(style)
+        case let .irregular(tl, tr, bl, br):
+            UnevenRoundedRectangle(
+                topLeadingRadius: tl,
+                bottomLeadingRadius: bl,
+                bottomTrailingRadius: br,
+                topTrailingRadius: tr,
+                style: .continuous
+            ).fill(style)
+        }
+    }
+
+    @ViewBuilder
+    private func stroke<S: ShapeStyle>(_ style: S, lineWidth: CGFloat) -> some View {
+        switch shape {
+        case .circle:
+            Circle().stroke(style, lineWidth: lineWidth)
+        case let .irregular(tl, tr, bl, br):
+            UnevenRoundedRectangle(
+                topLeadingRadius: tl,
+                bottomLeadingRadius: bl,
+                bottomTrailingRadius: br,
+                topTrailingRadius: tr,
+                style: .continuous
+            ).stroke(style, lineWidth: lineWidth)
+        }
+    }
+}
+
+/// 决策类卡片（权限/AskUser/旧 fire-and-forget）的毛玻璃外壳：
+/// 厚一档的 material + 顶部高光 + 极细描边 + 双层柔和阴影，避免突兀的状态色硬边。
 private struct ExpandedCardChrome: ViewModifier {
     let accent: Color
 
+    private let cornerRadius: CGFloat = 22
+
     func body(content: Content) -> some View {
-        content
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return content
+            .background(shape.fill(.regularMaterial))
+            // 极细的边框，让边缘"切"出来
+            .overlay(shape.stroke(Color.white.opacity(0.10), lineWidth: 0.5))
+            // 顶部高光：从上往下渐变白，轻轻抹一层
+            .overlay(
+                shape.stroke(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.35), Color.white.opacity(0)],
+                        startPoint: .top,
+                        endPoint: .center
+                    ),
+                    lineWidth: 0.6
+                )
+                .blendMode(.plusLighter)
+            )
+            // 状态色仅作为底部彩色阴影暗示，不再做硬描边
+            .shadow(color: Color.black.opacity(0.22), radius: 22, x: 0, y: 10)
+            .shadow(color: accent.opacity(0.14), radius: 6, x: 0, y: 2)
+    }
+}
+
+/// 高级简约的胶囊按钮样式。
+/// - prominent=true：实色填充（用于主操作"允许"）。
+/// - prominent=false：玻璃感半透底 + 细边（用于次操作）。
+private struct GlassPillButtonStyle: ButtonStyle {
+    let tint: Color
+    let prominent: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        let shape = Capsule(style: .continuous)
+        return configuration.label
+            .font(.system(size: 12, weight: .semibold))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .foregroundStyle(prominent ? Color.white : tint)
             .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(.ultraThinMaterial)
+                shape.fill(prominent ? AnyShapeStyle(tint) : AnyShapeStyle(tint.opacity(0.14)))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(accent, lineWidth: 2)
+                shape.stroke(
+                    prominent ? Color.white.opacity(0.25) : tint.opacity(0.32),
+                    lineWidth: prominent ? 0.5 : 0.7
+                )
             )
-            .shadow(radius: 8, y: 4)
+            .shadow(
+                color: prominent ? tint.opacity(0.35) : .clear,
+                radius: prominent ? 6 : 0,
+                x: 0,
+                y: prominent ? 2 : 0
+            )
+            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
+            .opacity(configuration.isPressed ? 0.85 : 1.0)
+            .animation(.spring(response: 0.22, dampingFraction: 0.75), value: configuration.isPressed)
     }
 }

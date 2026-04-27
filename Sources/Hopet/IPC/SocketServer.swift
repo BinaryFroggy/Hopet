@@ -147,11 +147,9 @@ public final class SocketServer {
                 close(fd)
             }
             onFrame(frame, reply)
-
-            // 30s 超时兜底：上层若忘了 reply，强制关闭连接，避免泄漏 fd。
-            self.queue.asyncAfter(deadline: .now() + 30) {
-                reply(nil)
-            }
+            // 不再设兜底超时：用户可能很久才在气泡上做决策，本地超时只会让按钮变成"假活"。
+            // 上层（PermissionPrompter）在用户决策 / EventRouter 收到外部已处理事件时调 reply()，
+            // 异常退出场景靠进程结束自动回收 fd。
         }
     }
 }
