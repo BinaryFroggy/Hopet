@@ -16,7 +16,7 @@ let package = Package(
             name: "Hopet",
             path: "Sources/Hopet",
             resources: [
-                .process("Resources")
+                .copy("Resources")
             ],
             swiftSettings: [
                 .unsafeFlags(["-parse-as-library"])

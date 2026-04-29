@@ -1,9 +1,7 @@
 import Foundation
 import SwiftUI
 
-/// v0.1 简化的主题包：不包含动画帧，仅给每个 PetState 提供
-/// glyph（emoji 或 ASCII 字形）+ accent color override。
-/// 后续接入 SpriteKit 动画时，再扩展 `frames: [URL]` 字段。
+/// v0.1 简化主题包：默认用 glyph 占位，已就绪的状态可挂载逐帧动画。
 public struct ThemePackage: Identifiable, Hashable, Sendable {
     public let id: String
     public let name: String
@@ -11,6 +9,7 @@ public struct ThemePackage: Identifiable, Hashable, Sendable {
     public let author: String?
     public let description: String?
     public let glyphs: [PetState: String]
+    public let animations: [PetState: FrameAnimation]
     public let accentOverrides: [PetState: ColorToken]
 
     public init(
@@ -20,6 +19,7 @@ public struct ThemePackage: Identifiable, Hashable, Sendable {
         author: String?,
         description: String?,
         glyphs: [PetState: String],
+        animations: [PetState: FrameAnimation] = [:],
         accentOverrides: [PetState: ColorToken] = [:]
     ) {
         self.id = id
@@ -28,11 +28,27 @@ public struct ThemePackage: Identifiable, Hashable, Sendable {
         self.author = author
         self.description = description
         self.glyphs = glyphs
+        self.animations = animations
         self.accentOverrides = accentOverrides
     }
 
     public func glyph(for state: PetState) -> String {
         glyphs[state] ?? state.badgeText
+    }
+
+    public func animation(for state: PetState) -> FrameAnimation? {
+        animations[state]
+    }
+}
+
+/// 逐帧 PNG 动画：指向 bundle 内一个目录，里面所有 PNG 按文件名排序作为帧序列。
+public struct FrameAnimation: Hashable, Sendable {
+    public let resourceDirectory: String
+    public let framesPerSecond: Double
+
+    public init(resourceDirectory: String, framesPerSecond: Double) {
+        self.resourceDirectory = resourceDirectory
+        self.framesPerSecond = framesPerSecond
     }
 }
 
