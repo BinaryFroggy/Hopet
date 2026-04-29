@@ -136,6 +136,15 @@ public final class PermissionPrompter {
                 s.pendingAskUser = nil
             }
         }
+
+        // 乐观切回 responding：用户在气泡上作答即视作 askUser 解决，不等远端 PostToolUse
+        // 投递的 ask_user_resolved 帧。否则在 hook 漏发 / 宿主无 PostToolUse（如手工触发）
+        // 的场景下，宠物会卡在 ask-user 动画。状态机里 (.responding, .askUserResolved) → nil，
+        // 远端帧后续真到达也是 no-op，幂等。
+        if let session = registry.session(sessionId),
+           let next = SessionStateMachine.nextState(from: session.currentState, event: .askUserResolved) {
+            registry.transition(sessionId: sessionId, to: next)
+        }
     }
 
     // MARK: - External resolution
