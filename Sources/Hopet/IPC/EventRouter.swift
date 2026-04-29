@@ -85,18 +85,25 @@ public final class EventRouter {
     /// 走结构化 elicitation 路径：回包带 updatedInput.answers。
     public func handleRaw(_ data: Data, reply: @escaping @Sendable (Data?) -> Void) {
         do {
-            let event = try Self.decoder.decode(StateEvent.self, from: data)
+            let raw = try Self.decoder.decode(StateEvent.self, from: data)
+            // AskUserQuestion 在 hook 协议里是 permission_ask + tool_name="AskUserQuestion"。
+            // 在 router 入口归一为 .askUser，下游（状态机、enqueue 分支）只看 EventKind。
+            let isAskUser = raw.event == .permissionAsk && isAskUserQuestion(raw)
+            let event = isAskUser ? raw.normalized(event: .askUser) : raw
             let subagent = isSubagentEvent(event)
             handle(event)
-            if event.event == .permissionAsk, event.requestId != nil, !subagent {
+            if event.requestId != nil, !subagent {
                 let sidShort = event.sessionId.hopetShortId
                 let reqShort = event.requestId!.hopetShortId
-                if isAskUserQuestion(event) {
+                switch event.event {
+                case .askUser:
                     HopetLog.trace("askuser", "enqueue sid=\(sidShort) reqId=\(reqShort)")
                     permissionPrompter.enqueueAskUser(event, reply: reply)
-                } else {
+                case .permissionAsk:
                     HopetLog.trace("perm", "enqueue sid=\(sidShort) reqId=\(reqShort)")
                     permissionPrompter.enqueue(event, reply: reply)
+                default:
+                    reply(nil)
                 }
             } else {
                 reply(nil)

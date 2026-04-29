@@ -107,4 +107,21 @@ extension StateEvent {
     public func stringValue(forKey key: String) -> String? {
         anyValue(forKey: key) as? String
     }
+
+    /// 返回一个仅替换 `event` 字段的副本，用于 router 入口的事件归一化。
+    public func normalized(event newEvent: EventKind) -> StateEvent {
+        StateEvent(
+            sessionId: sessionId,
+            tool: tool,
+            event: newEvent,
+            timestamp: timestamp,
+            cwd: cwd,
+            terminalApp: terminalApp,
+            terminalTty: terminalTty,
+            terminalSessionId: terminalSessionId,
+            payload: payload,
+            requestId: requestId,
+            isSubagent: isSubagent
+        )
+    }
 }
