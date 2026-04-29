@@ -47,6 +47,10 @@ public struct SessionBubbleView: View {
     @FocusState private var inputFocused: Bool
     /// 结构化 AskUserQuestion 的答题暂存：问题文案 → 用户当前输入。
     @State private var elicitationAnswers: [String: String] = [:]
+    /// multiSelect 模式下当前已勾选的 label 集合：问题文案 → labels。
+    /// 提交时由 advanceOrSubmit 把集合按插入顺序拼接成单个字符串写进 elicitationAnswers，
+    /// 保持外部协议（`[String: String]`）不变。
+    @State private var elicitationSelected: [String: [String]] = [:]
     /// 多问题时的当前页索引。单问题时恒为 0。
     @State private var elicitationIndex: Int = 0
 
@@ -312,14 +316,25 @@ public struct SessionBubbleView: View {
                     .lineLimit(4)
 
                 if let opts = q.options, !opts.isEmpty {
-                    // 选项：点击即填入答案。多选先简化为"点哪个就提交哪个"，与单选一致。
+                    // 单选：点选项即提交。多选：点选项是 toggle，靠"发送"按钮统一提交。
+                    let multi = q.multiSelect == true
+                    let selected = elicitationSelected[q.question] ?? []
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(opts, id: \.self) { opt in
+                            let isSelected = multi && selected.contains(opt)
                             Button(action: {
-                                elicitationAnswers[q.question] = opt
-                                advanceOrSubmit(pa: pa)
+                                if multi {
+                                    toggleSelection(question: q.question, option: opt)
+                                } else {
+                                    elicitationAnswers[q.question] = opt
+                                    advanceOrSubmit(pa: pa)
+                                }
                             }) {
                                 HStack {
+                                    if multi {
+                                        Image(systemName: isSelected ? "checkmark.square.fill" : "square")
+                                            .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                                    }
                                     Text(opt)
                                         .font(.system(size: 11))
                                     Spacer()
@@ -329,7 +344,7 @@ public struct SessionBubbleView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(
                                     RoundedRectangle(cornerRadius: 6)
-                                        .fill(Color.secondary.opacity(0.12))
+                                        .fill(Color.secondary.opacity(isSelected ? 0.22 : 0.12))
                                 )
                             }
                             .buttonStyle(.plain)
@@ -337,11 +352,15 @@ public struct SessionBubbleView: View {
                     }
                 }
 
-                TextField("自定义回答…", text: bindingForAnswer(of: q.question), axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(1...4)
-                    .focused($inputFocused)
-                    .onSubmit { advanceOrSubmit(pa: pa) }
+                // multiSelect 时不渲染自定义输入框：多选语义本身已被勾选集合表达，
+                // 同时显示文本框只会让"按钮选 + 文本输 + 谁覆盖谁"这条路径变模糊。
+                if q.multiSelect != true {
+                    TextField("自定义回答…", text: bindingForAnswer(of: q.question), axis: .vertical)
+                        .textFieldStyle(.roundedBorder)
+                        .lineLimit(1...4)
+                        .focused($inputFocused)
+                        .onSubmit { advanceOrSubmit(pa: pa) }
+                }
             }
 
             HStack {
@@ -355,7 +374,7 @@ public struct SessionBubbleView: View {
                 }
                 .keyboardShortcut(.return, modifiers: [])
                 .buttonStyle(.borderedProminent)
-                .disabled((elicitationAnswers[current?.question ?? ""] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(!hasAnswer(for: current))
             }
         }
         .padding(12)
@@ -375,8 +394,16 @@ public struct SessionBubbleView: View {
         let idx = min(elicitationIndex, max(0, total - 1))
         let q = pa.questions.indices.contains(idx) ? pa.questions[idx] : nil
         if let q {
-            let cur = (elicitationAnswers[q.question] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !cur.isEmpty else { return }
+            // multiSelect：把勾选集合按插入顺序拼成 ", " 分隔的字符串，写进 elicitationAnswers。
+            // answers 协议规定 value 是 String；模型接收 "蓝色, 紫色" 这种文本仍可识别为多选。
+            if q.multiSelect == true {
+                let selected = elicitationSelected[q.question] ?? []
+                guard !selected.isEmpty else { return }
+                elicitationAnswers[q.question] = selected.joined(separator: ", ")
+            } else {
+                let cur = (elicitationAnswers[q.question] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !cur.isEmpty else { return }
+            }
         }
         if idx < total - 1 {
             elicitationIndex = idx + 1
@@ -387,7 +414,29 @@ public struct SessionBubbleView: View {
             .filter { !$0.value.isEmpty }
         popThen { onResolveAskUser(trimmed, false) }
         elicitationAnswers.removeAll()
+        elicitationSelected.removeAll()
         elicitationIndex = 0
+    }
+
+    private func toggleSelection(question: String, option: String) {
+        var current = elicitationSelected[question] ?? []
+        if let i = current.firstIndex(of: option) {
+            current.remove(at: i)
+        } else {
+            current.append(option)
+        }
+        elicitationSelected[question] = current
+    }
+
+    /// "下一题" / "发送" 按钮的可用性：multiSelect 看勾选集合，单选看文本输入。
+    private func hasAnswer(for q: AskUserQuestionItem?) -> Bool {
+        guard let q else { return false }
+        if q.multiSelect == true {
+            return !(elicitationSelected[q.question]?.isEmpty ?? true)
+        }
+        return !(elicitationAnswers[q.question] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty
     }
 
     /// 旧 fire-and-forget pendingQuestion 卡片（PreToolUse `tool_name=AskUserQuestion` 路径）。
