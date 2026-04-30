@@ -32,6 +32,16 @@ public final class PermissionPrompter {
         let toolName = event.stringValue(forKey: "tool_name") ?? "Unknown"
         let command  = event.stringValue(forKey: "tool_input.command")
         let filePath = event.stringValue(forKey: "tool_input.file_path")
+        // ExitPlanMode 走通用 permission_ask hook，但 tool_input 里挂的是整段 plan markdown。
+        // trim + 截断在这里完成一次：气泡侧 1Hz 重渲染下避免反复扫描多 KB 文本，
+        // 同时 16 KiB 上限保护异常长度的 payload（IPC 帧本身有 1 MiB 上限，但展示框装不下）。
+        let plan: String? = {
+            guard toolName == PendingPermission.exitPlanModeTool,
+                  let raw = event.stringValue(forKey: "tool_input.plan") else { return nil }
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            return String(trimmed.prefix(16_384))
+        }()
 
         pending[requestId] = reply
         registry.patch(event.sessionId) { s in
@@ -39,14 +49,16 @@ public final class PermissionPrompter {
                 requestId: requestId,
                 toolName: toolName,
                 command: command,
-                filePath: filePath
+                filePath: filePath,
+                plan: plan
             )
         }
     }
 
     /// 用户在气泡上点击决策后调用。decision ∈ {"allow", "deny", "ask"}。
     /// "ask" 表示让 Claude 走它自己的终端 UI（hopet-emit 输出 {} 让出主导权）。
-    public func resolve(sessionId: String, requestId: String, decision: String) {
+    /// `reason` 仅在 deny 时附给 Claude 的反馈文本（例如 plan-approval 的 "继续规划" 或自定义反馈）。
+    public func resolve(sessionId: String, requestId: String, decision: String, reason: String? = nil) {
         let sid = sessionId.hopetShortId
         let rid = requestId.hopetShortId
         guard let reply = pending.removeValue(forKey: requestId) else {
@@ -60,7 +72,7 @@ public final class PermissionPrompter {
             return
         }
         HopetLog.trace("resolve", "sid=\(sid) reqId=\(rid) decision=\(decision)")
-        let payload = PermissionResponse(requestId: requestId, decision: decision)
+        let payload = PermissionResponse(requestId: requestId, decision: decision, reason: reason)
         reply(encodeResponse(payload))
 
         registry.patch(sessionId) { s in
@@ -197,22 +209,25 @@ public final class PermissionPrompter {
     }
 
     /// 解析 tool_input.questions 数组，与 clawd-on-desk 的 elicitation schema 对齐。
-    /// 接受形如 `[{question, options:[{label}|String], multiSelect}]`。
+    /// 接受形如 `[{question, options:[{label, description}|String], multiSelect}]`。
+    /// description 缺省时回退为 nil，兼容只有 label 的旧投递。
     private func parseQuestions(_ raw: Any?) -> [AskUserQuestionItem] {
         guard let arr = raw as? [Any] else { return [] }
         return arr.compactMap { item in
             guard let dict = item as? [String: Any],
                   let q = dict["question"] as? String, !q.isEmpty else { return nil }
-            let options: [String]? = {
+            let options: [AskUserQuestionOption]? = {
                 guard let opts = dict["options"] as? [Any] else { return nil }
-                let labels: [String] = opts.compactMap { o in
-                    if let s = o as? String { return s }
+                let parsed: [AskUserQuestionOption] = opts.compactMap { o in
+                    if let s = o as? String { return AskUserQuestionOption(label: s) }
                     if let d = o as? [String: Any] {
-                        return (d["label"] as? String) ?? (d["value"] as? String)
+                        guard let label = (d["label"] as? String) ?? (d["value"] as? String) else { return nil }
+                        let desc = (d["description"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                        return AskUserQuestionOption(label: label, description: desc)
                     }
                     return nil
                 }
-                return labels.isEmpty ? nil : labels
+                return parsed.isEmpty ? nil : parsed
             }()
             let multi = dict["multiSelect"] as? Bool
             return AskUserQuestionItem(question: q, options: options, multiSelect: multi)

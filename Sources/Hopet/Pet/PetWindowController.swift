@@ -53,11 +53,12 @@ public final class PetWindowController {
             registry: registry,
             themes: themes,
             tool: tool,
-            onResolvePermission: { [weak self] sessionId, requestId, decision in
+            onResolvePermission: { [weak self] sessionId, requestId, decision, reason in
                 self?.inputCoordinator.resolvePermission(
                     sessionId: sessionId,
                     requestId: requestId,
-                    decision: decision
+                    decision: decision,
+                    reason: reason
                 )
             },
             onResolveAskUser: { [weak self] sessionId, requestId, answers, cancel in

@@ -18,7 +18,9 @@ public struct SessionBubbleView: View {
     /// 展开态用的描述：运行中显示"已运行 X"，闲置显示"X 前"。
     let stateDurationPhrase: String
     let onTap: () -> Void
-    let onResolvePermission: (String) -> Void  // "allow" / "deny" / "ask"
+    /// (decision, reason). `decision` ∈ {"allow", "deny", "ask"}；`reason` 仅 deny 路径有意义
+    /// （承载 plan-approval "继续规划" 默认理由或用户自定义反馈）。
+    let onResolvePermission: (String, String?) -> Void
     /// AskUserQuestion 答题提交回调。`answers` 形如 `{ "问题文案": "回答" }`；
     /// `cancel = true` 表示用户取消（让 Claude 走自身 UI）。
     let onResolveAskUser: ([String: String], Bool) -> Void
@@ -30,7 +32,7 @@ public struct SessionBubbleView: View {
         elapsedShort: String,
         stateDurationPhrase: String,
         onTap: @escaping () -> Void,
-        onResolvePermission: @escaping (String) -> Void = { _ in },
+        onResolvePermission: @escaping (String, String?) -> Void = { _, _ in },
         onResolveAskUser: @escaping ([String: String], Bool) -> Void = { _, _ in },
         onDismiss: @escaping () -> Void
     ) {
@@ -53,6 +55,8 @@ public struct SessionBubbleView: View {
     @State private var elicitationSelected: [String: [String]] = [:]
     /// 多问题时的当前页索引。单问题时恒为 0。
     @State private var elicitationIndex: Int = 0
+    /// ExitPlanMode 卡片上的"自定义反馈"输入。提交时作为 deny 的 reason。
+    @State private var planFeedback: String = ""
 
     /// 肥皂泡"炸开"动画期间渲染的粒子。
     @State private var popParticles: [PopParticle] = []
@@ -183,7 +187,9 @@ public struct SessionBubbleView: View {
     private var expandedCard: some View {
         // 优先级：权限请求 > 结构化 AskUserQuestion > 早期 fire-and-forget pendingQuestion > 普通输入。
         // 同时只能渲染一种主体内容。
-        if bubble.pendingPermission != nil {
+        if let pp = bubble.pendingPermission, pp.isPlanApproval {
+            planApprovalCard.modifier(ExpandedCardChrome(accent: bubble.state.accentColor))
+        } else if bubble.pendingPermission != nil {
             permissionCard.modifier(ExpandedCardChrome(accent: bubble.state.accentColor))
         } else if bubble.pendingAskUser != nil {
             elicitationCard.modifier(ExpandedCardChrome(accent: bubble.state.accentColor))
@@ -210,7 +216,7 @@ public struct SessionBubbleView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer()
-                Button(action: { popThen { onResolvePermission("ask") } }) {
+                Button(action: { popThen { onResolvePermission("ask", nil) } }) {
                     Image(systemName: "xmark")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(.secondary)
@@ -253,12 +259,12 @@ public struct SessionBubbleView: View {
 
             // 操作按钮：所有按钮都先播炸开动画再回调
             HStack(spacing: 8) {
-                Button("拒绝") { popThen { onResolvePermission("deny") } }
+                Button("拒绝") { popThen { onResolvePermission("deny", nil) } }
                     .buttonStyle(GlassPillButtonStyle(tint: .red, prominent: false))
                 Spacer()
-                Button("交还终端") { popThen { onResolvePermission("ask") } }
+                Button("交还终端") { popThen { onResolvePermission("ask", nil) } }
                     .buttonStyle(GlassPillButtonStyle(tint: .gray, prominent: false))
-                Button("允许") { popThen { onResolvePermission("allow") } }
+                Button("允许") { popThen { onResolvePermission("allow", nil) } }
                     .keyboardShortcut(.return, modifiers: [])
                     .buttonStyle(GlassPillButtonStyle(tint: .green, prominent: true))
             }
@@ -268,6 +274,110 @@ public struct SessionBubbleView: View {
         .padding(.vertical, 16)
         .frame(width: 380)
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// ExitPlanMode 专用卡片。auto-accept 不复刻——hook 协议表达不出 session 级模式翻转，
+    /// 伪装成 "ask" 等于让用户连点两次。底部提示告知用户去终端自行切换。
+    private var planApprovalCard: some View {
+        let pp = bubble.pendingPermission!
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("接受此 plan?")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.primary)
+                Spacer()
+                Button(action: { popThen { onResolvePermission("ask", nil) } }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 18, height: 18)
+                        .background(Circle().fill(Color.primary.opacity(0.06)))
+                }
+                .buttonStyle(.plain)
+                .help("交还终端处理")
+            }
+
+            if let plan = pp.plan {
+                detailBlock {
+                    ScrollView {
+                        Text(plan)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                    }
+                    .frame(maxHeight: 220)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                planOptionRow(index: 1, label: "允许执行", isPrimary: true) {
+                    popThen { onResolvePermission("allow", nil) }
+                }
+                planOptionRow(index: 2, label: "继续规划") {
+                    popThen { onResolvePermission("deny", "User wants to keep planning") }
+                }
+            }
+
+            TextField("或者告诉 Claude 该怎么做…", text: $planFeedback, axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(1...3)
+                .focused($inputFocused)
+                .font(.system(size: 11))
+                .onSubmit { submitPlanFeedback() }
+
+            Text("如需后续自动放行，请到 Claude Code 终端按 Shift+Tab 切换 auto-accept 模式")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+        .frame(width: 420)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// plan-approval 卡片里的单条选项行：左侧编号徽标 + 标签。`isPrimary` 高亮第一项（与 CC 默认聚焦行为一致）。
+    @ViewBuilder
+    private func planOptionRow(
+        index: Int,
+        label: String,
+        isPrimary: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Text("\(index)")
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(isPrimary ? Color.white : .secondary)
+                    .frame(width: 18, height: 18)
+                    .background(
+                        Circle().fill(isPrimary ? Color.accentColor : Color.secondary.opacity(0.18))
+                    )
+                Text(label)
+                    .font(.system(size: 12, weight: isPrimary ? .semibold : .regular))
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isPrimary ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.10))
+            )
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut(KeyEquivalent(Character("\(index)")), modifiers: [])
+    }
+
+    private func submitPlanFeedback() {
+        let trimmed = planFeedback.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        planFeedback = ""
+        popThen { onResolvePermission("deny", trimmed) }
     }
 
     /// 详情块的统一容器（底纹 + 细边）。
@@ -317,37 +427,50 @@ public struct SessionBubbleView: View {
 
                 if let opts = q.options, !opts.isEmpty {
                     // 单选：点选项即提交。多选：点选项是 toggle，靠"发送"按钮统一提交。
+                    // 选项数 / description 长度都是外部协议决定的，所以包一层 ScrollView 兜住极端情况。
                     let multi = q.multiSelect == true
                     let selected = elicitationSelected[q.question] ?? []
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(opts, id: \.self) { opt in
-                            let isSelected = multi && selected.contains(opt)
-                            Button(action: {
-                                if multi {
-                                    toggleSelection(question: q.question, option: opt)
-                                } else {
-                                    elicitationAnswers[q.question] = opt
-                                    advanceOrSubmit(pa: pa)
-                                }
-                            }) {
-                                HStack {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(opts, id: \.label) { opt in
+                                let isSelected = multi && selected.contains(opt.label)
+                                Button(action: {
                                     if multi {
-                                        Image(systemName: isSelected ? "checkmark.square.fill" : "square")
-                                            .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                                        toggleSelection(question: q.question, option: opt.label)
+                                    } else {
+                                        elicitationAnswers[q.question] = opt.label
+                                        advanceOrSubmit(pa: pa)
                                     }
-                                    Text(opt)
-                                        .font(.system(size: 11))
-                                    Spacer()
+                                }) {
+                                    HStack(alignment: .top, spacing: 6) {
+                                        if multi {
+                                            Image(systemName: isSelected ? "checkmark.square.fill" : "square")
+                                                .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                                                .padding(.top, 1)
+                                        }
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(opt.label)
+                                                .font(.system(size: 11, weight: .medium))
+                                                .foregroundStyle(.primary)
+                                            if let desc = opt.description, !desc.isEmpty {
+                                                Text(desc)
+                                                    .font(.system(size: 10))
+                                                    .foregroundStyle(.secondary)
+                                                    .fixedSize(horizontal: false, vertical: true)
+                                            }
+                                        }
+                                        Spacer(minLength: 0)
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 6)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .fill(Color.secondary.opacity(isSelected ? 0.22 : 0.12))
+                                    )
                                 }
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .fill(Color.secondary.opacity(isSelected ? 0.22 : 0.12))
-                                )
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
                 }
@@ -378,7 +501,8 @@ public struct SessionBubbleView: View {
             }
         }
         .padding(12)
-        .frame(width: 360, height: 220)
+        .frame(width: 360)
+        .frame(minHeight: 220, maxHeight: 460)
         .onAppear { inputFocused = true }
     }
 

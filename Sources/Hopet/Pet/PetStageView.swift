@@ -5,7 +5,8 @@ public struct PetStageView: View {
     @ObservedObject var registry: SessionRegistry
     @ObservedObject var themes: ThemeStore
     let tool: AITool
-    let onResolvePermission: (String, String, String) -> Void  // (sessionId, requestId, decision)
+    /// (sessionId, requestId, decision, reason). `reason` 仅在 plan-approval 卡片的 deny 路径上非 nil。
+    let onResolvePermission: (String, String, String, String?) -> Void
     /// (sessionId, requestId, answers, cancel)
     let onResolveAskUser: (String, String, [String: String], Bool) -> Void
 
@@ -17,7 +18,7 @@ public struct PetStageView: View {
         registry: SessionRegistry,
         themes: ThemeStore,
         tool: AITool,
-        onResolvePermission: @escaping (String, String, String) -> Void,
+        onResolvePermission: @escaping (String, String, String, String?) -> Void,
         onResolveAskUser: @escaping (String, String, [String: String], Bool) -> Void
     ) {
         self.registry = registry
@@ -60,9 +61,9 @@ public struct PetStageView: View {
                     onTap: {
                         expandedBubbleId = (expandedBubbleId == session.id) ? nil : session.id
                     },
-                    onResolvePermission: { decision in
+                    onResolvePermission: { decision, reason in
                         guard let pp = session.pendingPermission else { return }
-                        onResolvePermission(session.id, pp.requestId, decision)
+                        onResolvePermission(session.id, pp.requestId, decision, reason)
                     },
                     onResolveAskUser: { answers, cancel in
                         guard let pa = session.pendingAskUser else { return }
@@ -91,8 +92,13 @@ public struct PetStageView: View {
     /// 部分卡片高度自适应内容，这里取保守上限，仅用于外推距离的"避让"计算 ——
     /// 估高一点只会让卡片离宠物更远，不会遮挡；估低则可能压到宠物。
     private func expandedSize(for session: Session) -> CGSize {
-        if session.pendingPermission != nil { return CGSize(width: 380, height: 240) }
-        if session.pendingAskUser != nil { return CGSize(width: 360, height: 220) }
+        if let pp = session.pendingPermission {
+            // ExitPlanMode 渲染整段 plan markdown，尺寸明显大于普通 allow/deny 卡片。
+            return pp.isPlanApproval
+                ? CGSize(width: 420, height: 540)
+                : CGSize(width: 380, height: 240)
+        }
+        if session.pendingAskUser != nil { return CGSize(width: 360, height: 460) }
         if session.pendingQuestion != nil { return CGSize(width: 320, height: 130) }
         return CGSize(width: 360, height: 96)
     }
