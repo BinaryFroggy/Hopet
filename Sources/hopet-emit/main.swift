@@ -85,8 +85,12 @@ guard let toolRaw = args.tool, let eventRaw = args.event else {
 
 // MARK: - Read stdin (hook payload)
 
+// 必须用 readDataToEndOfFile 阻塞等到 cc close stdin —— availableData 是非阻塞的，
+// 在 cc fork+pipe 还没写完 payload 时就会返回空 Data，导致下游 session_id 兜底成
+// `anon-XXXX`、payload 为空。Hopet 侧 EventRouter 把 `anon-` 前缀直接当 subagent 丢，
+// 配对的 PostToolUse 因此永远不到 cancelPending，权限气泡卡死、宠物状态不切。
 let stdin = FileHandle.standardInput
-let stdinData = stdin.availableData
+let stdinData = stdin.readDataToEndOfFile()
 let hookJson: [String: Any]
 if stdinData.isEmpty {
     hookJson = [:]

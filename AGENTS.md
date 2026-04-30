@@ -183,6 +183,28 @@ WIP                                # 不接受 WIP 提交
 - UI 改动须本机验证：`swift run Hopet` 启动进程并触发对应 hook 路径，确认行为后再标记完成。`swift build` 通过不构成验证。
 - 高风险操作须人类显式确认：删除文件、重命名目录、修改 `Package.swift` 拓扑、修改 hook 协议字段。
 
+### 5.1 PetState 动画资产
+
+切分 sprite sheet 与生成 GIF 预览**必须**调用 `scripts/build-pet-animation.py`，禁止内嵌临时 Python / shell 脚本重复造轮子。该脚本负责：固定 7×N 网格、cell 320×240 切片、自动清空旧帧、透明背景 GIF（magenta sentinel + 共享调色板）、对齐数据校验报告。
+
+新增 / 替换某个 `PetState` 的动画素材：
+
+1. 把源图放到 `DevDocs/assets/seal-<state>-spritesheet.png`，要求：
+   - 透明背景 PNG，禁止白底（GIF 1-bit alpha 兜底由脚本处理）
+   - 7 列 × N 行（N ∈ {3, 4}）规则等距网格，每帧严格 320 × 240
+   - 整图 2240 × 720（21 帧）或 2240 × 960（28 帧）
+   - 所有帧海豹本体共基线、水平中心 cx 偏差 ≤ 8 像素（脚本会校验并 warn）
+2. 跑 `scripts/build-pet-animation.py <state>`（slug 用 kebab-case，如 `ask-user`、`tool-use`、`permission-prompt`）
+3. 在 `Sources/Hopet/Theme/DefaultTheme.swift` 的 `animations` 字典里挂上对应 `PetState`：
+   ```swift
+   .askUser: FrameAnimation(resourceDirectory: "Resources/Themes/Hopi/seal-ask-user", framesPerSecond: 8)
+   ```
+4. `swift build` 通过后按 §5 第 3 条本机验证动画在对应状态下播放。
+
+源图不规则（尺寸不整除、白底、行间漂移）时不要在脚本里加兜底逻辑修补单张图，应回到设计工具规整后再喂；脚本是约定的执行入口，不是图像修复器。
+
+带 `-vN` 后缀（`-v2`、`-v3` ……）的源图均为草稿，脚本默认不读取也不应被 agent 主动选用；当且仅当人类显式点名某个版本时才传第二个参数 `scripts/build-pet-animation.py <state> DevDocs/assets/seal-<state>-spritesheet-v3.png` 临时跑一次。
+
 ## 6. 与 `CLAUDE.md` 的关系
 
 `CLAUDE.md` 通过 `@AGENTS.md` 引用本文件。规则改动只在本文件进行，`CLAUDE.md` 不得追加内容。

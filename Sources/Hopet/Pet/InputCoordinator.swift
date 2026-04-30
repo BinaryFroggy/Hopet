@@ -16,8 +16,14 @@ public final class InputCoordinator {
     }
 
     /// 用户在气泡 UI 上点 Allow / Deny / Ask 时调用。
-    public func resolvePermission(sessionId: String, requestId: String, decision: String) {
-        permissionPrompter.resolve(sessionId: sessionId, requestId: requestId, decision: decision)
+    /// `reason` 仅在 deny 时使用，承载 plan-approval 卡片的"继续规划"或自定义反馈文案。
+    public func resolvePermission(sessionId: String, requestId: String, decision: String, reason: String? = nil) {
+        permissionPrompter.resolve(
+            sessionId: sessionId,
+            requestId: requestId,
+            decision: decision,
+            reason: reason
+        )
     }
 
     /// 用户在 AskUserQuestion 气泡里提交答案时调用。

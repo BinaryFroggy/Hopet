@@ -8,26 +8,53 @@ extension String {
 /// 一次未决的权限请求（Claude PermissionRequest hook 触发）。
 /// requestId 是 hopet-emit 生成、Hopet 通过 socket 反向回写决策时必须带上的 token。
 public struct PendingPermission: Codable, Sendable, Hashable {
+    /// CC ExitPlanMode 工具名常量。气泡侧、enqueue 入口、外推尺寸 hint 都靠这个匹配，
+    /// 写错就会静默走通用 allow/deny 卡片而非 plan-approval。
+    public static let exitPlanModeTool = "ExitPlanMode"
+
     public let requestId: String
     public let toolName: String
     public let command: String?
     public let filePath: String?
+    /// 仅 ExitPlanMode 时填，承载已 trim/截断的 plan markdown 正文。
+    public let plan: String?
 
-    public init(requestId: String, toolName: String, command: String? = nil, filePath: String? = nil) {
+    public init(
+        requestId: String,
+        toolName: String,
+        command: String? = nil,
+        filePath: String? = nil,
+        plan: String? = nil
+    ) {
         self.requestId = requestId
         self.toolName = toolName
         self.command = command
         self.filePath = filePath
+        self.plan = plan
+    }
+
+    public var isPlanApproval: Bool { toolName == Self.exitPlanModeTool }
+}
+
+/// AskUserQuestion 选项：`label` 是回写 answers 的规范值，`description` 是给用户看的副标题（可空）。
+/// 协议层 answers map 的 value 始终是 label，description 仅用于渲染，不参与匹配。
+public struct AskUserQuestionOption: Codable, Sendable, Hashable {
+    public let label: String
+    public let description: String?
+
+    public init(label: String, description: String? = nil) {
+        self.label = label
+        self.description = description
     }
 }
 
 /// AskUserQuestion (elicitation) 的单个问题项。
 public struct AskUserQuestionItem: Codable, Sendable, Hashable {
     public let question: String
-    public let options: [String]?
+    public let options: [AskUserQuestionOption]?
     public let multiSelect: Bool?
 
-    public init(question: String, options: [String]? = nil, multiSelect: Bool? = nil) {
+    public init(question: String, options: [AskUserQuestionOption]? = nil, multiSelect: Bool? = nil) {
         self.question = question
         self.options = options
         self.multiSelect = multiSelect
