@@ -69,6 +69,7 @@ public final class PermissionPrompter {
                     s.pendingPermission = nil
                 }
             }
+            advancePastPermission(sessionId: sessionId)
             return
         }
         HopetLog.trace("resolve", "sid=\(sid) reqId=\(rid) decision=\(decision)")
@@ -80,6 +81,19 @@ public final class PermissionPrompter {
                 s.pendingPermission = nil
             }
         }
+        advancePastPermission(sessionId: sessionId)
+    }
+
+    /// 用户在气泡上落决策即视为权限交互结束，乐观把 permissionPrompt → responding，让动画立刻恢复。
+    /// 不等 Claude 远端的 PostToolUse —— deny 路径上宿主 hook 行为不一致，allow 路径下 PostToolUse
+    /// 也可能晚来；状态机里 (.responding, .postToolUse) → nil 保证后续真帧到达时幂等不抖动。
+    /// 与 resolveAskUser 的乐观切回 askUserResolved 设计平行。
+    private func advancePastPermission(sessionId: String) {
+        guard let session = registry.session(sessionId),
+              let next = SessionStateMachine.nextState(from: session.currentState, event: .postToolUse) else {
+            return
+        }
+        registry.transition(sessionId: sessionId, to: next)
     }
 
     // MARK: - AskUserQuestion（elicitation）

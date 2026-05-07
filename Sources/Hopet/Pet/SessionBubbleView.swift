@@ -11,6 +11,11 @@ import SwiftUI
 /// （TIOCSTI 受 controlling tty 限制、AppleScript 仅 iTerm/Terminal、第三方进程
 /// 拿不到 IDE/CLI extension spawn 的 PTY master fd）。
 public struct SessionBubbleView: View {
+    /// 决策按钮配色。两者都跟 PixelButtonStyle(prominent: true) 搭配 → 实色背景 + 白字。
+    /// 拒绝走玫红（视觉警示但不至于像纯红那么刺），交还终端走中浅灰（与"允许"的状态绿区分开）。
+    static let denyRose = Color(red: 0.92, green: 0.32, blue: 0.50)
+    static let handoffGray = Color(white: 0.62)
+
     let bubble: SessionBubble
     let isLeader: Bool
     /// 折叠态用的紧凑耗时，例如 "5m" / "30s"。
@@ -58,7 +63,7 @@ public struct SessionBubbleView: View {
     /// ExitPlanMode 卡片上的"自定义反馈"输入。提交时作为 deny 的 reason。
     @State private var planFeedback: String = ""
 
-    /// 肥皂泡"炸开"动画期间渲染的粒子。
+    /// "炸开"动画期间渲染的方块粒子（8-bit 风格，无柔光）。
     @State private var popParticles: [PopParticle] = []
 
     public var body: some View {
@@ -77,22 +82,12 @@ public struct SessionBubbleView: View {
                     ))
             }
 
-            // 炸开粒子层：从中心向外飞溅 + 缩小淡出。
+            // 炸开粒子层：8-bit 风格用方块代替圆形，硬边描边，无模糊。
             ForEach(popParticles) { p in
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.white.opacity(0.85), bubble.state.accentColor.opacity(0.55)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .overlay(
-                        Circle().stroke(Color.white.opacity(0.7), lineWidth: 0.4)
-                    )
+                Rectangle()
+                    .fill(bubble.state.accentColor)
+                    .overlay(Rectangle().stroke(Color.black.opacity(0.85), lineWidth: 1))
                     .frame(width: p.size, height: p.size)
-                    .blur(radius: 0.4)
-                    .shadow(color: bubble.state.accentColor.opacity(0.35), radius: 1.5)
                     .offset(x: p.offsetX, y: p.offsetY)
                     .opacity(p.opacity)
                     .scaleEffect(p.scale)
@@ -143,21 +138,15 @@ public struct SessionBubbleView: View {
     }
 
     private var collapsedDot: some View {
-        // 是否处于"运行中"状态：决定折叠态时间前缀图标。
-        let isRunning: Bool = {
-            switch bubble.state {
-            case .thinking, .responding, .toolUse, .askUser, .permissionPrompt: return true
-            case .idle, .completed, .errorInterrupted: return false
-            }
-        }()
+        let isRunning = bubble.state.isRunning
 
-        return VStack(spacing: 1) {
+        return VStack(spacing: 2) {
             HStack(spacing: 3) {
-                Circle()
+                Rectangle()
                     .fill(bubble.state.accentColor)
-                    .frame(width: 5, height: 5)
+                    .frame(width: 6, height: 6)
                 Text(bubble.displayCwd)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
                     .truncationMode(.middle)
@@ -166,18 +155,18 @@ public struct SessionBubbleView: View {
                 Image(systemName: isRunning ? "play.fill" : "clock")
                     .font(.system(size: 7))
                 Text(elapsedShort)
-                    .font(.system(size: 9, weight: .medium))
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .lineLimit(1)
             }
             .foregroundStyle(.secondary)
         }
-        .modifier(BubbleTextLegibility())
         .padding(.horizontal, 6)
         .frame(width: 64, height: 64)
-        .modifier(SoapBubbleChrome(
+        .modifier(PixelChrome(
             shape: .circle,
             accent: bubble.state.accentColor,
-            emphasis: isLeader ? 1.4 : 1.0
+            strokeWidth: isLeader ? 1.5 : 1,
+            strokeColor: Color(white: 0.32).opacity(0.85)
         ))
         .contentShape(Circle())
         .onTapGesture { onTap() }
@@ -187,18 +176,54 @@ public struct SessionBubbleView: View {
     private var expandedCard: some View {
         // 优先级：权限请求 > 结构化 AskUserQuestion > 早期 fire-and-forget pendingQuestion > 普通输入。
         // 同时只能渲染一种主体内容。
+        // 决策类卡片信息密集（按钮组、列表、文本框），保持像素圆角矩形；
+        // 默认大气泡是单行信息卡，做成胶囊更接近漫画对话框。
         if let pp = bubble.pendingPermission, pp.isPlanApproval {
-            planApprovalCard.modifier(ExpandedCardChrome(accent: bubble.state.accentColor))
+            planApprovalCard.modifier(decisionChrome(shape: .rect(cornerRadius: 10)))
         } else if bubble.pendingPermission != nil {
-            permissionCard.modifier(ExpandedCardChrome(accent: bubble.state.accentColor))
+            permissionCard.modifier(decisionChrome(shape: .rect(cornerRadius: 10)))
         } else if bubble.pendingAskUser != nil {
-            elicitationCard.modifier(ExpandedCardChrome(accent: bubble.state.accentColor))
+            elicitationCard.modifier(decisionChrome(shape: .rect(cornerRadius: 10)))
         } else if bubble.pendingQuestion != nil {
-            askUserCard.modifier(ExpandedCardChrome(accent: bubble.state.accentColor))
+            askUserCard.modifier(decisionChrome(shape: .rect(cornerRadius: 10)))
         } else {
-            // 普通态：横向不规则大气泡，整张卡可点击收起。
-            defaultCard.modifier(IrregularBubbleChrome(accent: bubble.state.accentColor))
+            defaultCard.modifier(decisionChrome(shape: .capsule))
         }
+    }
+
+    /// 大气泡共用外壳：accent 跟随当前 PetState，黑描边 + 2pt 厚度统一。
+    private func decisionChrome(shape: PixelChrome.Shape) -> PixelChrome {
+        PixelChrome(
+            shape: shape,
+            accent: bubble.state.accentColor,
+            strokeWidth: 2,
+            strokeColor: Color.black.opacity(0.92)
+        )
+    }
+
+    /// permission / plan-approval 卡片右上角的"交还终端"X 按钮：xmark + handoffGray 圆底。
+    @ViewBuilder
+    private func handoffXButton(action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "xmark")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(Color.white)
+                .frame(width: 18, height: 18)
+                .background(Circle().fill(SessionBubbleView.handoffGray))
+        }
+        .buttonStyle(.plain)
+        .help("交还终端处理")
+    }
+
+    /// elicitation / askUser 卡片右上角的取消按钮：palette 渲染的 xmark.circle.fill。
+    @ViewBuilder
+    private func paletteDismissButton(action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "xmark.circle.fill")
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(Color.white, SessionBubbleView.handoffGray)
+        }
+        .buttonStyle(.plain)
     }
 
     /// 权限请求卡片（PermissionRequest hook 触发）。
@@ -216,15 +241,7 @@ public struct SessionBubbleView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer()
-                Button(action: { popThen { onResolvePermission("ask", nil) } }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 18, height: 18)
-                        .background(Circle().fill(Color.primary.opacity(0.06)))
-                }
-                .buttonStyle(.plain)
-                .help("交还终端处理")
+                handoffXButton { popThen { onResolvePermission("ask", nil) } }
             }
 
             // 主标题
@@ -260,13 +277,13 @@ public struct SessionBubbleView: View {
             // 操作按钮：所有按钮都先播炸开动画再回调
             HStack(spacing: 8) {
                 Button("拒绝") { popThen { onResolvePermission("deny", nil) } }
-                    .buttonStyle(GlassPillButtonStyle(tint: .red, prominent: false))
+                    .buttonStyle(PixelButtonStyle(tint: SessionBubbleView.denyRose, prominent: true))
                 Spacer()
                 Button("交还终端") { popThen { onResolvePermission("ask", nil) } }
-                    .buttonStyle(GlassPillButtonStyle(tint: .gray, prominent: false))
+                    .buttonStyle(PixelButtonStyle(tint: SessionBubbleView.handoffGray, prominent: true))
                 Button("允许") { popThen { onResolvePermission("allow", nil) } }
                     .keyboardShortcut(.return, modifiers: [])
-                    .buttonStyle(GlassPillButtonStyle(tint: .green, prominent: true))
+                    .buttonStyle(PixelButtonStyle(tint: .green, prominent: true))
             }
             .padding(.top, 2)
         }
@@ -287,15 +304,7 @@ public struct SessionBubbleView: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.primary)
                 Spacer()
-                Button(action: { popThen { onResolvePermission("ask", nil) } }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 18, height: 18)
-                        .background(Circle().fill(Color.primary.opacity(0.06)))
-                }
-                .buttonStyle(.plain)
-                .help("交还终端处理")
+                handoffXButton { popThen { onResolvePermission("ask", nil) } }
             }
 
             if let plan = pp.plan {
@@ -410,13 +419,9 @@ public struct SessionBubbleView: View {
                 Text(total > 1 ? "❓ 在等你回答（\(idx + 1)/\(total)）" : "❓ 在等你回答")
                     .font(.system(size: 12, weight: .semibold))
                 Spacer()
-                Button(action: {
-                    popThen { onResolveAskUser([:], true) }  // cancel：先炸开再取消
-                }) {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                paletteDismissButton {
+                    popThen { onResolveAskUser([:], true) }
                 }
-                .buttonStyle(.plain)
-                .help("交还终端处理")
             }
 
             if let q = current {
@@ -572,10 +577,7 @@ public struct SessionBubbleView: View {
                 Text("❓ 在等你回答")
                     .font(.system(size: 12, weight: .semibold))
                 Spacer()
-                Button(action: { popThen { onDismiss() } }) {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
+                paletteDismissButton { popThen { onDismiss() } }
             }
             if let q = bubble.pendingQuestion {
                 Text(q)
@@ -636,7 +638,6 @@ public struct SessionBubbleView: View {
                     .fixedSize()
             }
         }
-        .modifier(BubbleTextLegibility())
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
         .frame(width: 360, alignment: .leading)
@@ -646,17 +647,7 @@ public struct SessionBubbleView: View {
     }
 }
 
-/// 让文字在透明肥皂泡里于任何背景色下都可读：
-/// 暗影压底（暗背景下也能看清文字轮廓）+ 极淡亮影提边（白底下文字不会"消失"）。
-private struct BubbleTextLegibility: ViewModifier {
-    func body(content: Content) -> some View {
-        content
-            .shadow(color: Color.black.opacity(0.45), radius: 1.4, x: 0, y: 0.5)
-            .shadow(color: Color.white.opacity(0.22), radius: 0.7, x: 0, y: -0.3)
-    }
-}
-
-/// 肥皂泡炸开动画期间的单个水珠粒子。
+/// 炸开动画期间的单个像素方块。
 private struct PopParticle: Identifiable {
     let id = UUID()
     let angle: Double      // 飞溅方向（度）
@@ -667,254 +658,165 @@ private struct PopParticle: Identifiable {
     var scale: CGFloat
 }
 
-/// 大泡泡退出时的"绽开"过渡：放大 + 模糊 + 淡出。配合粒子层模拟肥皂泡炸开。
-private struct BubbleBlurModifier: ViewModifier {
-    let blur: CGFloat
-    func body(content: Content) -> some View {
-        content.blur(radius: blur)
-    }
-}
-
 private extension AnyTransition {
+    /// 8-bit 风的"压扁消失"：缩放 + 淡出，无模糊。配合方块粒子完成 pop 效果。
     static var bubblePopOut: AnyTransition {
-        .scale(scale: 1.45, anchor: .center)
-            .combined(with: .opacity)
-            .combined(with: .modifier(
-                active: BubbleBlurModifier(blur: 10),
-                identity: BubbleBlurModifier(blur: 0)
-            ))
+        .scale(scale: 0.85, anchor: .center).combined(with: .opacity)
     }
 }
 
-/// 普通态使用的"横向不规则大气泡"外壳：稳重半透底 + 轻状态色染色 + 柔和模糊光晕。
-/// 与折叠态的 `SoapBubbleChrome` 分离：展开态优先保证文字可读，不放高光斑/薄膜彩虹环之类装饰。
-private struct IrregularBubbleChrome: ViewModifier {
-    let accent: Color
-
-    private var shape: UnevenRoundedRectangle {
-        UnevenRoundedRectangle(
-            topLeadingRadius: 32,
-            bottomLeadingRadius: 22,
-            bottomTrailingRadius: 36,
-            topTrailingRadius: 26,
-            style: .continuous
-        )
-    }
-
-    func body(content: Content) -> some View {
-        content
-            .background(
-                ZStack {
-                    shape.fill(Color.white.opacity(0.40))
-                    shape.fill(accent.opacity(0.10))
-                    shape.fill(
-                        LinearGradient(
-                            colors: [Color.white.opacity(0.10), Color.white.opacity(0)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                }
-                .compositingGroup()
-            )
-            .overlay(
-                shape.stroke(Color.white.opacity(0.28), lineWidth: 0.6)
-                    .blur(radius: 0.5)
-            )
-            .overlay(
-                shape.stroke(Color.white.opacity(0.16), lineWidth: 1.4)
-                    .blur(radius: 6)
-            )
-            .shadow(color: accent.opacity(0.18), radius: 8, x: 0, y: 3)
-            .shadow(color: Color.black.opacity(0.10), radius: 4, x: 0, y: 1)
-    }
-}
-
-/// 肥皂泡风格外壳：背景几乎完全透明，靠光泽 rim + 左上反光斑 + 底部状态色辉光"显形"。
-/// 折叠态用 `.circle`，展开横向气泡用 `.irregular(...)`。决策类卡片走 `ExpandedCardChrome`，保留稳重风格。
-private struct SoapBubbleChrome: ViewModifier {
-    enum Shape {
+/// 8-bit 像素风外壳：阶梯像素圆角 + 近白底 + 顶部高光 + 块状阴影。所有几何沿 `pixelSize` 方格对齐，
+/// 圆角处呈现可见的 2pt 颗粒阶梯——视觉上对齐参考素材的复古 UI 边缘，与小海豹 sprite 同语言。
+/// `shape` 切换三种漫画对话框形状：
+///   - `.rect(r)`：固定圆角矩形（决策类卡片）
+///   - `.capsule`：cornerRadius = min(w,h)/2，长条椭圆/胶囊（默认大气泡）
+///   - `.circle`：min(w,h)/2 + 任意框成正方形时退化成圆（折叠态小气泡）
+/// 描边宽度 / 颜色独立可调：折叠态小气泡偏好细灰描边（不抢戏），决策类大卡片偏好粗黑描边（强调）。
+private struct PixelChrome: ViewModifier {
+    enum Shape: Equatable {
+        case rect(cornerRadius: CGFloat)
+        case capsule
         case circle
-        case irregular(topLeading: CGFloat, topTrailing: CGFloat, bottomLeading: CGFloat, bottomTrailing: CGFloat)
     }
 
     let shape: Shape
     let accent: Color
-    /// 描边粗度倍率（leader 状态下放大）。
-    let emphasis: CGFloat
+    let strokeWidth: CGFloat
+    let strokeColor: Color
 
     func body(content: Content) -> some View {
-        // .plusLighter 让所有"光"层叠加只增亮不变浑浊，模拟肥皂泡多次反光。
-        content
-            .background(
-                ZStack {
-                    fill(Color.white.opacity(0.26))
-                    fill(accent.opacity(0.08))
-                    fill(
-                        LinearGradient(
-                            colors: [Color.white.opacity(0.10), Color.white.opacity(0)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    fill(
-                        RadialGradient(
-                            colors: [accent.opacity(0.22), accent.opacity(0.04), Color.clear],
-                            center: UnitPoint(x: 0.7, y: 0.85),
-                            startRadius: 0,
-                            endRadius: 90
-                        )
-                    )
-                    .blendMode(.plusLighter)
-                    stroke(
-                        AngularGradient(
-                            colors: [
-                                Color(red: 0.85, green: 0.95, blue: 1.0).opacity(0.30),
-                                accent.opacity(0.30),
-                                Color(red: 1.0, green: 0.85, blue: 0.95).opacity(0.30),
-                                Color.white.opacity(0.34),
-                                Color(red: 0.78, green: 1.0, blue: 0.92).opacity(0.30),
-                                accent.opacity(0.34),
-                                Color(red: 0.85, green: 0.95, blue: 1.0).opacity(0.30)
-                            ],
-                            center: .center
-                        ),
-                        lineWidth: 1.8
-                    )
-                    .blur(radius: 3.2)
-                    .blendMode(.plusLighter)
-                    fill(
-                        RadialGradient(
-                            colors: [
-                                Color.white.opacity(0.32),
-                                Color.white.opacity(0.10),
-                                Color.white.opacity(0)
-                            ],
-                            center: UnitPoint(x: 0.26, y: 0.20),
-                            startRadius: 0,
-                            endRadius: 36
-                        )
-                    )
-                    .blendMode(.plusLighter)
-                    fill(
-                        RadialGradient(
-                            colors: [
-                                Color.white.opacity(0.18),
-                                Color.white.opacity(0.05),
-                                Color.white.opacity(0)
-                            ],
-                            center: UnitPoint(x: 0.78, y: 0.78),
-                            startRadius: 0,
-                            endRadius: 16
-                        )
-                    )
-                    .blendMode(.plusLighter)
-                }
-                .compositingGroup()
-            )
-            .overlay(
-                stroke(Color.white.opacity(0.14), lineWidth: 1.2 * emphasis)
-                    .blur(radius: 6.5)
-            )
-            .shadow(color: accent.opacity(0.18), radius: 7, x: 0, y: 3)
-            .shadow(color: Color.black.opacity(0.07), radius: 3, x: 0, y: 1)
-    }
+        // pixel pitch：圆角阶梯 / 阴影偏移按这个量化；描边宽度由 caller 单独控制，不必整数倍 pixel。
+        let pixel: CGFloat = 2
+        let strokeInset = strokeWidth
 
-    @ViewBuilder
-    private func fill<S: ShapeStyle>(_ style: S) -> some View {
-        switch shape {
-        case .circle:
-            Circle().fill(style)
-        case let .irregular(tl, tr, bl, br):
-            UnevenRoundedRectangle(
-                topLeadingRadius: tl,
-                bottomLeadingRadius: bl,
-                bottomTrailingRadius: br,
-                topTrailingRadius: tr,
-                style: .continuous
-            ).fill(style)
-        }
-    }
-
-    @ViewBuilder
-    private func stroke<S: ShapeStyle>(_ style: S, lineWidth: CGFloat) -> some View {
-        switch shape {
-        case .circle:
-            Circle().stroke(style, lineWidth: lineWidth)
-        case let .irregular(tl, tr, bl, br):
-            UnevenRoundedRectangle(
-                topLeadingRadius: tl,
-                bottomLeadingRadius: bl,
-                bottomTrailingRadius: br,
-                topTrailingRadius: tr,
-                style: .continuous
-            ).stroke(style, lineWidth: lineWidth)
-        }
-    }
-}
-
-/// 决策类卡片（权限/AskUser/旧 fire-and-forget）的毛玻璃外壳：
-/// 厚一档的 material + 顶部高光 + 极细描边 + 双层柔和阴影，避免突兀的状态色硬边。
-private struct ExpandedCardChrome: ViewModifier {
-    let accent: Color
-
-    private let cornerRadius: CGFloat = 22
-
-    func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         return content
-            .background(shape.fill(.regularMaterial))
-            // 极细的边框，让边缘"切"出来
-            .overlay(shape.stroke(Color.white.opacity(0.10), lineWidth: 0.5))
-            // 顶部高光：从上往下渐变白，轻轻抹一层
-            .overlay(
-                shape.stroke(
-                    LinearGradient(
-                        colors: [Color.white.opacity(0.35), Color.white.opacity(0)],
-                        startPoint: .top,
-                        endPoint: .center
-                    ),
-                    lineWidth: 0.6
-                )
-                .blendMode(.plusLighter)
+            .padding(strokeInset + 1)  // 让内容不撞到内层亮边
+            .background(
+                GeometryReader { proxy in
+                    let cr = self.cornerRadius(in: proxy.size)
+                    let outer = PixelRoundedRectangle(cornerRadius: cr, pixelSize: pixel)
+                    let inner = PixelRoundedRectangle(
+                        cornerRadius: max(pixel, cr - strokeInset),
+                        pixelSize: pixel
+                    )
+                    ZStack {
+                        // 1. 块状像素阴影：硬偏移、无模糊，边缘也是阶梯像素。
+                        outer
+                            .fill(Color.black.opacity(0.22))
+                            .offset(x: 0, y: pixel * 2)
+                        // 2. 描边底（外层 shape 整面填描边色，内层填浅色后只剩 strokeInset 宽的描边）。
+                        outer.fill(strokeColor)
+                        // 3. 内层：近白冷调主体 + accent 轻染 + 顶部高光带。padding(strokeInset) 让其向内缩。
+                        ZStack {
+                            inner.fill(Color(red: 0.97, green: 0.97, blue: 0.99))
+                            // accent 轻染——状态色在卡片上隐隐透出，不抢内容。
+                            inner.fill(accent.opacity(0.10))
+                            // 顶部 4px 像素高光带，强调"自上而来的光源"。
+                            inner
+                                .fill(Color.white.opacity(0.45))
+                                .mask(
+                                    VStack(spacing: 0) {
+                                        Rectangle().frame(height: pixel * 2)
+                                        Spacer(minLength: 0)
+                                    }
+                                )
+                        }
+                        .padding(strokeInset)
+                    }
+                }
             )
-            // 状态色仅作为底部彩色阴影暗示，不再做硬描边
-            .shadow(color: Color.black.opacity(0.22), radius: 22, x: 0, y: 10)
-            .shadow(color: accent.opacity(0.14), radius: 6, x: 0, y: 2)
+    }
+
+    private func cornerRadius(in size: CGSize) -> CGFloat {
+        switch shape {
+        case .rect(let r): return r
+        case .capsule, .circle: return min(size.width, size.height) / 2
+        }
     }
 }
 
-/// 高级简约的胶囊按钮样式。
+/// 像素化圆角矩形：把 4 个圆角拆成 `pixelSize` 大小的方格阶梯，整体呈现 8-bit UI 边缘的颗粒感。
+/// 对每个角，按距离角心的圆形判定填哪些方格；中心由两条贯穿矩形构成，避免任何角度漏接。
+private struct PixelRoundedRectangle: Shape {
+    let cornerRadius: CGFloat
+    let pixelSize: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let r = max(0, min(cornerRadius, min(rect.width, rect.height) / 2))
+        // 中央贯通条：上下穿过的中柱 + 左右穿过的中横，两者并集 = 矩形 - 4 个角的方形空洞。
+        if rect.width > 2 * r {
+            path.addRect(CGRect(x: rect.minX + r, y: rect.minY,
+                                width: rect.width - 2 * r, height: rect.height))
+        }
+        if rect.height > 2 * r {
+            path.addRect(CGRect(x: rect.minX, y: rect.minY + r,
+                                width: rect.width, height: rect.height - 2 * r))
+        }
+
+        // 4 个角：grid 采样，距离 corner anchor < r 的方格填入。
+        let cells = max(1, Int(round(r / pixelSize)))
+        guard cells > 0 else { return path }
+        let cell = r / CGFloat(cells)
+        let r2 = CGFloat(cells * cells)
+        for cy in 0..<cells {
+            for cx in 0..<cells {
+                let dx = CGFloat(cells) - CGFloat(cx) - 0.5
+                let dy = CGFloat(cells) - CGFloat(cy) - 0.5
+                guard dx * dx + dy * dy <= r2 else { continue }
+                let ox = CGFloat(cx) * cell
+                let oy = CGFloat(cy) * cell
+                // top-left
+                path.addRect(CGRect(x: rect.minX + ox, y: rect.minY + oy,
+                                    width: cell, height: cell))
+                // top-right
+                path.addRect(CGRect(x: rect.maxX - ox - cell, y: rect.minY + oy,
+                                    width: cell, height: cell))
+                // bottom-left
+                path.addRect(CGRect(x: rect.minX + ox, y: rect.maxY - oy - cell,
+                                    width: cell, height: cell))
+                // bottom-right
+                path.addRect(CGRect(x: rect.maxX - ox - cell, y: rect.maxY - oy - cell,
+                                    width: cell, height: cell))
+            }
+        }
+        return path
+    }
+}
+
+/// 8-bit 风按钮样式。
 /// - prominent=true：实色填充（用于主操作"允许"）。
-/// - prominent=false：玻璃感半透底 + 细边（用于次操作）。
-private struct GlassPillButtonStyle: ButtonStyle {
+/// - prominent=false：浅色填充 + 深描边（用于次操作）。
+/// 共同点：圆角 4px、硬黑描边、按下时整体下移 1px 模拟"按入"。
+private struct PixelButtonStyle: ButtonStyle {
     let tint: Color
     let prominent: Bool
 
     func makeBody(configuration: Configuration) -> some View {
-        let shape = Capsule(style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 4, style: .continuous)
+        let pressed = configuration.isPressed
         return configuration.label
-            .font(.system(size: 12, weight: .semibold))
+            .font(.system(size: 12, weight: .bold, design: .monospaced))
             .padding(.horizontal, 14)
             .padding(.vertical, 7)
-            .foregroundStyle(prominent ? Color.white : tint)
+            .foregroundStyle(prominent ? Color.white : Color.black.opacity(0.85))
             .background(
-                shape.fill(prominent ? AnyShapeStyle(tint) : AnyShapeStyle(tint.opacity(0.14)))
+                ZStack {
+                    if !pressed {
+                        // 未按下：渲染下方的实色"投影方块"。
+                        shape
+                            .fill(Color.black.opacity(0.85))
+                            .offset(x: 0, y: 2)
+                    }
+                    shape.fill(prominent ? AnyShapeStyle(tint) : AnyShapeStyle(tint.opacity(0.22)))
+                    shape.stroke(Color.black.opacity(0.85), lineWidth: 1.5)
+                    // 顶部 1px 高光线，强化像素感。
+                    shape
+                        .inset(by: 1.5)
+                        .stroke(Color.white.opacity(prominent ? 0.45 : 0.6), lineWidth: 1)
+                }
             )
-            .overlay(
-                shape.stroke(
-                    prominent ? Color.white.opacity(0.25) : tint.opacity(0.32),
-                    lineWidth: prominent ? 0.5 : 0.7
-                )
-            )
-            .shadow(
-                color: prominent ? tint.opacity(0.35) : .clear,
-                radius: prominent ? 6 : 0,
-                x: 0,
-                y: prominent ? 2 : 0
-            )
-            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
-            .opacity(configuration.isPressed ? 0.85 : 1.0)
-            .animation(.spring(response: 0.22, dampingFraction: 0.75), value: configuration.isPressed)
+            .offset(x: 0, y: pressed ? 2 : 0)
+            .animation(.linear(duration: 0.05), value: pressed)
     }
 }

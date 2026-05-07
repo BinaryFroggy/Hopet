@@ -26,7 +26,7 @@ public enum DefaultTheme {
         let suffix: [PetState: String] = [
             .idle:             "seal-idle",
             .thinking:         "seal-thinking",
-            .responding:       "seal-responding",
+            .responding:       "seal-working",
             .toolUse:          "seal-tool-use",
             .permissionPrompt: "seal-permission-prompt",
             .askUser:          "seal-ask-user",

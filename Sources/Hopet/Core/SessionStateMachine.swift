@@ -26,10 +26,14 @@ public enum SessionStateMachine {
              (.permissionPrompt, .postToolUse):
             return .responding
 
-        // permission_ask：responding / thinking / toolUse → permissionPrompt
+        // permission_ask：responding / thinking / toolUse / idle → permissionPrompt
+        // idle 是为冷启动兜底：handleStateEvent 按需创建出的 idle session 第一条就是 permission_ask
+        // （subagent reroute 到主 session 但主 session 还没 user_prompt 时也走这里），
+        // 不切的话气泡展开但宠物动画停在 idle。
         case (.responding, .permissionAsk),
              (.thinking, .permissionAsk),
-             (.toolUse, .permissionAsk):
+             (.toolUse, .permissionAsk),
+             (.idle, .permissionAsk):
             return .permissionPrompt
 
         // ask_user：从任意主动状态进入 askUser

@@ -78,7 +78,8 @@ public final class SceneRouter {
             thinkingTimer.start()
             decayTimer.start()
             petWindowController.showAll()
-            notchController.show()
+            // 刘海条暂不展示，等三态/降级顶条视觉打磨完再开。controller / wiring 保留。
+            // notchController.show()
             HopetLog.info("Hopet booted.")
             HopetLog.trace("booted ok.")
         } catch {

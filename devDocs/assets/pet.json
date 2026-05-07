@@ -1,0 +1,8 @@
+{
+    "id": "seal-hopi",
+    "displayName": "SealHopi",
+    "description": "This is a cute little mochi-like seal named Hopi.",
+    "spritesheetPath": "spritesheet.webp",
+    "kind": "animal"
+  }
+  

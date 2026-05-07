@@ -157,16 +157,11 @@ public struct Session: Codable, Identifiable, Hashable, Sendable {
     }
 
     /// 上一个状态持续了多久 / 距完成多久。
-    /// - 运行中（thinking/responding/toolUse/askUser/permissionPrompt）：返回 "已运行 5m"
+    /// - 运行中：返回 "已运行 5m"
     /// - 闲置/已完成/错误：返回 "5m 前"
     public func stateDurationPhrase(now: Date = Date()) -> String {
         let unit = elapsedDescription(now: now)
-        switch currentState {
-        case .idle, .completed, .errorInterrupted:
-            return "\(unit) 前"
-        case .thinking, .responding, .toolUse, .askUser, .permissionPrompt:
-            return "已运行 \(unit)"
-        }
+        return currentState.isRunning ? "已运行 \(unit)" : "\(unit) 前"
     }
 
     private static func humanDuration(_ seconds: Int) -> String {
