@@ -124,4 +124,23 @@ extension StateEvent {
             isSubagent: isSubagent
         )
     }
+
+    /// 替换 sessionId 并清掉 isSubagent 标记的副本。
+    /// 用于把 subagent 触发的同步类 hook（permission_ask / askUser）路由到所属 transcript 的
+    /// 主 session 上挂气泡——子 agent 的工具调用从用户视角仍是"主会话在等你回答"。
+    public func reroute(toSessionId newId: String) -> StateEvent {
+        StateEvent(
+            sessionId: newId,
+            tool: tool,
+            event: event,
+            timestamp: timestamp,
+            cwd: cwd,
+            terminalApp: terminalApp,
+            terminalTty: terminalTty,
+            terminalSessionId: terminalSessionId,
+            payload: payload,
+            requestId: requestId,
+            isSubagent: false
+        )
+    }
 }

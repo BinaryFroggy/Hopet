@@ -66,6 +66,10 @@ public final class EventRouter {
         case .sessionStart:
             handleSessionStart(event)
         case .sessionEnd:
+            // session 正常结束但还挂着 pendingPermission / pendingAskUser 的场景：
+            // 用户在终端直接关掉 Claude，PostToolUse / askUserResolved 不会到达，
+            // 不显式 cancel 会让 pending reply 闭包永远留在表里，等价于 socket fd 泄漏。
+            permissionPrompter.cancelPending(sessionId: event.sessionId)
             registry.remove(event.sessionId)
             cleanupMaps(removedSessionId: event.sessionId)
         default:
@@ -83,25 +87,55 @@ public final class EventRouter {
     /// permission_ask + 携带 requestId 的事件会挂起 reply，等用户在气泡上做决定。
     /// AskUserQuestion（tool_name == "AskUserQuestion"）也通过 PermissionRequest hook 进来，
     /// 走结构化 elicitation 路径：回包带 updatedInput.answers。
+    ///
+    /// 子 agent 处理：fire-and-forget（pre/post tool use 等）丢弃避免气泡爆炸；
+    /// 但 permission_ask / askUser 这两类用户必须回答的同步事件，**重路由**到所属 transcript 的主
+    /// session 上挂气泡——否则 Hopet 完全沉默而 Claude 弹自己的 fallback UI，体验割裂。
     public func handleRaw(_ data: Data, reply: @escaping @Sendable (Data?) -> Void) {
         do {
             let raw = try Self.decoder.decode(StateEvent.self, from: data)
             // AskUserQuestion 在 hook 协议里是 permission_ask + tool_name="AskUserQuestion"。
             // 在 router 入口归一为 .askUser，下游（状态机、enqueue 分支）只看 EventKind。
             let isAskUser = raw.event == .permissionAsk && isAskUserQuestion(raw)
-            let event = isAskUser ? raw.normalized(event: .askUser) : raw
-            let subagent = isSubagentEvent(event)
-            handle(event)
-            if event.requestId != nil, !subagent {
-                let sidShort = event.sessionId.hopetShortId
-                let reqShort = event.requestId!.hopetShortId
-                switch event.event {
+            let normalized = isAskUser ? raw.normalized(event: .askUser) : raw
+
+            // 跑一次副作用：transcriptToPrimary 表会被填充，subagent 标记被算出。
+            let subagent = isSubagentEvent(normalized)
+            // 同步类必须有 requestId 才进 enqueue；没 requestId 的退化为 fire-and-forget。
+            let isSyncRequest = (normalized.event == .permissionAsk || normalized.event == .askUser)
+                && normalized.requestId != nil
+
+            // 子 agent 的 fire-and-forget：保留原"丢弃 + reply nil"。trace 由 handle() 写一行。
+            if subagent && !isSyncRequest {
+                handle(normalized)
+                reply(nil)
+                return
+            }
+
+            // 子 agent 的同步请求：重路由到主 session（同 transcript_path 上首个 main agent）。
+            // 找不到主 session（e.g. 主 agent 还没发 SessionStart）就 fallback 用 subagent 自己的 sid，
+            // 等于在主 sid 缺失时退化成 v0 行为；无论如何不让用户看不到气泡。
+            let routed: StateEvent
+            if subagent, let primary = primarySessionId(forTranscriptOf: normalized),
+               primary != normalized.sessionId {
+                HopetLog.trace("reroute",
+                    "sub→primary subSid=\(normalized.sessionId.hopetShortId) primary=\(primary.hopetShortId) evt=\(normalized.event.rawValue)")
+                routed = normalized.reroute(toSessionId: primary)
+            } else {
+                routed = normalized
+            }
+
+            handle(routed)
+            if routed.requestId != nil {
+                let sidShort = routed.sessionId.hopetShortId
+                let reqShort = routed.requestId!.hopetShortId
+                switch routed.event {
                 case .askUser:
                     HopetLog.trace("askuser", "enqueue sid=\(sidShort) reqId=\(reqShort)")
-                    permissionPrompter.enqueueAskUser(event, reply: reply)
+                    permissionPrompter.enqueueAskUser(routed, reply: reply)
                 case .permissionAsk:
                     HopetLog.trace("perm", "enqueue sid=\(sidShort) reqId=\(reqShort)")
-                    permissionPrompter.enqueue(event, reply: reply)
+                    permissionPrompter.enqueue(routed, reply: reply)
                 default:
                     reply(nil)
                 }
@@ -112,6 +146,14 @@ public final class EventRouter {
             HopetLog.trace("error", "decode StateEvent failed: \(error)")
             reply(nil)
         }
+    }
+
+    /// 返回 event 所属 transcript_path 上已注册的主 session id。
+    /// `isSubagentEvent` 已经把 transcriptToPrimary 表填好了，这里只是查表。
+    private func primarySessionId(forTranscriptOf event: StateEvent) -> String? {
+        let tp = transcriptPath(of: event) ?? sessionToTranscript[event.sessionId]
+        guard let tp else { return nil }
+        return transcriptToPrimary[tp]
     }
 
     private static let decoder: JSONDecoder = {
@@ -139,6 +181,31 @@ public final class EventRouter {
             stateSince: event.timestamp
         )
         registry.upsert(session)
+        pruneStaleSiblings(of: session)
+    }
+
+    /// 同一 (tool, cwd) 下若已有旧 session，视作上一次没收到 session_end 的躺尸气泡，在新 session_start
+    /// 时清掉。漏发 SessionEnd 的常见场景：宿主被强关、Hopet 启停错位、IDE extension host 重载导致
+    /// claude-code 子进程换 PID + 换 sid。不清的话用户就会看到"一个会话却有多个气泡"。
+    ///
+    /// 区分两类同 cwd 的旧 session：
+    /// - IDE 内嵌（terminalTty == nil）：extension host 独占该项目目录的 claude-code 实例，新 session_start
+    ///   必然是替身，无视状态一律清。
+    /// - 真终端（terminalTty != nil）：iTerm / Ghostty 多 tab 可能合法并发，仅清确实闲下来的；
+    ///   仍在运行的（PetState.isRunning == true）保留。
+    private func pruneStaleSiblings(of new: Session) {
+        let victims = registry.activeSessions(of: new.tool).filter { other in
+            guard other.id != new.id, other.cwd == new.cwd else { return false }
+            // IDE 内嵌（无 tty）→ 一律清；真终端 → 只清非运行中的。
+            return other.terminalTty == nil || !other.currentState.isRunning
+        }
+        for v in victims {
+            let host = v.terminalTty.map { "tty=\($0)" } ?? "ide-embedded"
+            HopetLog.trace("autoprune", "remove stale peer sid=\(v.id.hopetShortId) cwd=\(new.cwd) state=\(v.currentState.rawValue) host=\(host) (replaced by sid=\(new.id.hopetShortId))")
+            permissionPrompter.cancelPending(sessionId: v.id)
+            registry.remove(v.id)
+            cleanupMaps(removedSessionId: v.id)
+        }
     }
 
     private func handleStateEvent(_ event: StateEvent) {
