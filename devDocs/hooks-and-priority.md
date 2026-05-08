@@ -34,7 +34,7 @@
 | 13 | `SubagentStop` | Subagent 完成 | `agent_type` | ✅ | ⛔ v0.1 不订阅 |
 | 14 | `TaskCreated` | TaskCreate 创建 task | (task metadata) | ✅ | ⛔ v0.1 不订阅 |
 | 15 | `TaskCompleted` | task 标记完成 | (task metadata) | ✅ | ⛔ v0.1 不订阅 |
-| 16 | `Stop` | Claude 完成回复 | (turn metadata) | ✅ | ✅ 注册 → `stop` |
+| 16 | `Stop` | Claude 完成回复 | `transcript_path`（必有）；部分版本带 `assistant_message` 字段 | ✅ | ✅ 注册 → `stop`，hopet-emit 从 `transcript_path` 反向扫描，遇到本轮 user prompt 即停止（避免取到上一轮残留的 end_turn），只接受位于其后的 `stop_reason=="end_turn"` assistant text；同时跳过中间 `tool_use` turn 的过渡文本。end_turn 行尚未 flush 时用 `DispatchSource` 监听 transcript write/extend，事件即重读，5s 超时兜底（hook fire-and-forget，不阻塞 Claude）。截断 120 字符后随 payload 上行（字段名 `assistant_message`）。EventRouter 写入 `Session.lastAssistantMessage`，供默认气泡第二行展示；下一次 `UserPromptSubmit` 清空 |
 | 17 | `StopFailure` | turn 因 API 错误终止 | `error_type` (rate_limit/auth_failed/billing_error/...) | 否 | ✅ 注册 → `error`（携带 error_type） |
 | 18 | `TeammateIdle` | Agent team 队友 idle | (team metadata) | ✅ | ⛔ v0.1 不订阅 |
 | 19 | `InstructionsLoaded` | CLAUDE.md / .claude/rules/*.md 加载 | `file_path`、`load_reason`、`memory_type` | 否 | ⛔ 不订阅 |

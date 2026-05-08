@@ -1,6 +1,9 @@
 import SwiftUI
 
-/// 一只宠物 + 它周围的环绕气泡。整体放进 PetWindow 里。
+/// 一只宠物 + 紧贴它头顶的会话气泡列。整体放进 PetWindow 里。
+///
+/// 气泡列从下往上堆叠：最贴近宠物的是最新一个会话，越上越旧；最多保留 5 条，
+/// 第 6 个新会话进来时把最旧那条挤出列表。空状态下只显示宠物。
 public struct PetStageView: View {
     @ObservedObject var registry: SessionRegistry
     @ObservedObject var themes: ThemeStore
@@ -10,9 +13,17 @@ public struct PetStageView: View {
     /// (sessionId, requestId, answers, cancel)
     let onResolveAskUser: (String, String, [String: String], Bool) -> Void
 
-    @State private var expandedBubbleId: String?
     @State private var now: Date = Date()
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    /// 列表最多展示几个会话气泡。超出的旧会话被滚出视野（仍存在于 registry，仅不显示）。
+    private static let maxVisibleBubbles: Int = 5
+    /// 气泡列与宠物头顶之间的视觉间距。
+    private static let bubbleToPetGap: CGFloat = 6
+    /// 气泡之间的纵向间距。
+    private static let interBubbleSpacing: CGFloat = 6
+    /// 宠物距离窗口底部的留白。clamp 到屏幕底之后，这一段就是海豹和 dock 之间的安全距离。
+    private static let petBottomPadding: CGFloat = 30
 
     public init(
         registry: SessionRegistry,
@@ -32,128 +43,69 @@ public struct PetStageView: View {
         registry.pets[tool] ?? PetInstance(tool: tool)
     }
 
+    /// 列表里的会话：按 `startedAt` 升序倒排，最新的排数组开头。
+    /// 注意 ForEach 渲染时再做一次 reverse —— 想让"最新会话紧贴宠物"，VStack 里
+    /// 它必须出现在最后一个位置。
     private var sessions: [Session] {
         registry.activeSessions(of: tool)
-            .sorted { $0.startedAt < $1.startedAt }
+            .sorted { $0.startedAt > $1.startedAt }
+            .prefix(PetStageView.maxVisibleBubbles)
+            .map { $0 }
     }
 
     public var body: some View {
-        let slots = BubbleLayout.slots(count: sessions.count)
-        return ZStack {
-            // 环绕气泡先渲染（在宠物之后避免遮挡，但 zIndex 控制叠放）
-            ForEach(Array(zip(sessions.indices, sessions)), id: \.1.id) { idx, session in
-                let slot = slots[idx]
-                let bubble = makeBubble(session: session, slot: slot)
-                // 有任何待决策项时强制展开（这是用户必须看到的）。
-                let mustExpand = session.pendingPermission != nil
-                              || session.pendingAskUser != nil
-                              || session.pendingQuestion != nil
-                let isExpanded = mustExpand || (expandedBubbleId == session.id)
-                let displayBubble = bubble.with(expanded: isExpanded)
-                let cardSize = expandedSize(for: session)
-                let offset = bubbleOffset(slot: slot, isExpanded: isExpanded, cardSize: cardSize)
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
 
-                SessionBubbleView(
-                    bubble: displayBubble,
-                    isLeader: pet.drivenBySessionId == session.id,
-                    elapsedShort: session.elapsedDescription(now: now),
-                    stateDurationPhrase: session.stateDurationPhrase(now: now),
-                    onTap: {
-                        expandedBubbleId = (expandedBubbleId == session.id) ? nil : session.id
-                    },
-                    onResolvePermission: { decision, reason in
-                        guard let pp = session.pendingPermission else { return }
-                        onResolvePermission(session.id, pp.requestId, decision, reason)
-                    },
-                    onResolveAskUser: { answers, cancel in
-                        guard let pa = session.pendingAskUser else { return }
-                        onResolveAskUser(session.id, pa.requestId, answers, cancel)
-                        expandedBubbleId = nil
-                    },
-                    onDismiss: { expandedBubbleId = nil }
-                )
-                .offset(x: offset.x, y: offset.y)
-                .animation(.spring(response: 0.32, dampingFraction: 0.78), value: isExpanded)
-                .zIndex(isExpanded ? 10 : 1)
+            // 旧 → 新（自上而下）。VStack 末项 = 最新会话，紧贴宠物头顶。
+            VStack(spacing: PetStageView.interBubbleSpacing) {
+                ForEach(Array(sessions.reversed())) { session in
+                    SessionBubbleView(
+                        bubble: makeBubble(session: session),
+                        isLeader: pet.drivenBySessionId == session.id,
+                        stateDurationPhrase: session.stateDurationPhrase(now: now),
+                        onResolvePermission: { decision, reason in
+                            guard let pp = session.pendingPermission else { return }
+                            onResolvePermission(session.id, pp.requestId, decision, reason)
+                        },
+                        onResolveAskUser: { answers, cancel in
+                            guard let pa = session.pendingAskUser else { return }
+                            onResolveAskUser(session.id, pa.requestId, answers, cancel)
+                        }
+                    )
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .bottom).combined(with: .opacity),
+                        removal: .opacity
+                    ))
+                }
             }
+            .padding(.bottom, PetStageView.bubbleToPetGap)
+            .animation(.spring(response: 0.32, dampingFraction: 0.82), value: sessions.map(\.id))
 
             PetBadgeView(
                 tool: tool,
                 state: pet.aggregatedState,
                 theme: themes.activeTheme
             )
-            .zIndex(5)
+
+            Spacer().frame(height: PetStageView.petBottomPadding)
         }
         .frame(width: PetWindow.stageSize.width, height: PetWindow.stageSize.height)
         .onReceive(timer) { now = $0 }
     }
 
-    /// 展开后卡片的尺寸上限（与 SessionBubbleView 内部 frame 必须保持一致）。
-    /// 部分卡片高度自适应内容，这里取保守上限，仅用于外推距离的"避让"计算 ——
-    /// 估高一点只会让卡片离宠物更远，不会遮挡；估低则可能压到宠物。
-    private func expandedSize(for session: Session) -> CGSize {
-        if let pp = session.pendingPermission {
-            // ExitPlanMode 渲染整段 plan markdown，尺寸明显大于普通 allow/deny 卡片。
-            return pp.isPlanApproval
-                ? CGSize(width: 420, height: 540)
-                : CGSize(width: 380, height: 240)
-        }
-        if session.pendingAskUser != nil { return CGSize(width: 360, height: 460) }
-        if session.pendingQuestion != nil { return CGSize(width: 320, height: 130) }
-        return CGSize(width: 360, height: 96)
-    }
-
-    /// 折叠态保持原 slot 偏移；展开态沿 slot 方向把卡片外推，
-    /// 保证卡片靠近宠物那一侧的边距宠物中心 ≥ 宠物半径 + 安全间距，绝不遮挡主体。
-    private func bubbleOffset(slot: BubbleLayout.Slot, isExpanded: Bool, cardSize: CGSize) -> CGPoint {
-        if !isExpanded {
-            return CGPoint(x: slot.offsetX, y: slot.offsetY)
-        }
-        let theta = slot.angleDegrees * .pi / 180
-        let dirX = CGFloat(cos(theta))
-        let dirY = CGFloat(sin(theta))
-        // 宠物 128×128 圆角矩形：水平/垂直方向半径 64，对角处略小，用 64 作为最保守半径。
-        let petHalfExtent: CGFloat = 64
-        let safeGap: CGFloat = 16
-        let cardHalfExtentAlongDir = projectedHalfExtent(width: cardSize.width, height: cardSize.height, dirX: dirX, dirY: dirY)
-        let minCenterDistance = petHalfExtent + safeGap + cardHalfExtentAlongDir
-        let slotRadius = sqrt(slot.offsetX * slot.offsetX + slot.offsetY * slot.offsetY)
-        let dist = max(slotRadius, minCenterDistance)
-        return CGPoint(x: dirX * dist, y: dirY * dist)
-    }
-
-    /// 轴对齐矩形从中心沿单位方向 (dirX, dirY) 到边的距离。
-    private func projectedHalfExtent(width: CGFloat, height: CGFloat, dirX: CGFloat, dirY: CGFloat) -> CGFloat {
-        let ax = abs(dirX)
-        let ay = abs(dirY)
-        if ax < 1e-6 { return height / 2 }
-        if ay < 1e-6 { return width / 2 }
-        return min(width / (2 * ax), height / (2 * ay))
-    }
-
-    private func makeBubble(session: Session, slot: BubbleLayout.Slot) -> SessionBubble {
+    private func makeBubble(session: Session) -> SessionBubble {
         SessionBubble(
             id: session.id,
             tool: session.tool,
-            orbitAngle: slot.angleDegrees,
-            orbitRing: slot.ring,
             displayTitle: session.displayTitle,
             hasTitle: session.title != nil,
             displayCwd: session.cwdLastComponent,
-            displayElapsed: session.elapsedDescription(now: now),
             state: session.currentState,
-            expanded: false,
+            lastAssistantMessage: session.lastAssistantMessage,
             pendingQuestion: session.pendingQuestion,
             pendingAskUser: session.pendingAskUser,
             pendingPermission: session.pendingPermission
         )
-    }
-}
-
-private extension SessionBubble {
-    func with(expanded: Bool) -> SessionBubble {
-        var copy = self
-        copy.expanded = expanded
-        return copy
     }
 }

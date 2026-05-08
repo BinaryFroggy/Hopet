@@ -164,6 +164,182 @@ for path in allowedKeys {
     }
 }
 
+// MARK: - Stop hook: extract last assistant message
+//
+// Stop hook 触发时希望把 Claude 这一轮回复的开头送到 Hopet，让默认气泡第二行能展示。
+// 取数顺序：
+//   1. 若 stdin JSON 直接带 `assistant_message`（部分版本 Claude Code 已暴露），用它。
+//   2. 否则解析 `transcript_path` 指向的 JSONL，从尾向前找最后一条 `type:"assistant"`
+//      或 `message.role:"assistant"` 行，把所有 `content[].type=="text"` 的 text 拼接。
+// 取到后 trim → 去换行折叠 → 截断到 120 字符 → 写进 safePayload["assistant_message"]，
+// EventRouter 在 .stop 分支读出这一字段并落到 Session.lastAssistantMessage。
+//
+// 解析失败一律静默：fire-and-forget hook，宁可气泡少显示一行也不能阻塞 Claude。
+
+func collectAssistantText(fromMessage msg: Any) -> String? {
+    // Claude transcript 行常见两种结构：
+    //   { "type": "assistant", "message": { "content": [...] } }
+    //   { "type": "assistant", "content": [...] }
+    let content: Any?
+    if let m = msg as? [String: Any], let c = m["content"] {
+        content = c
+    } else {
+        content = msg
+    }
+    guard let arr = content as? [[String: Any]] else {
+        if let s = content as? String { return s }
+        return nil
+    }
+    var pieces: [String] = []
+    for block in arr {
+        guard (block["type"] as? String) == "text",
+              let text = block["text"] as? String else { continue }
+        pieces.append(text)
+    }
+    let joined = pieces.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    return joined.isEmpty ? nil : joined
+}
+
+/// 只读 transcript 尾部最多这么多字节。Claude transcript 含 tool_use / tool_result 单 session
+/// 常见 1–10 MiB；fsevents 每次 write 重读全量在长会话上叠加 100ms+ × N 次。本轮 end_turn
+/// assistant text + 前一条 user prompt 几乎必在末尾 1 MiB 内，read 范围按这个上限。
+private let transcriptTailBudget: Int = 1 * 1024 * 1024
+
+func lastAssistantText(fromTranscriptAt path: String) -> String? {
+    guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+    defer { try? handle.close() }
+
+    let size: UInt64
+    do { size = try handle.seekToEnd() } catch { return nil }
+    let readLen = Int(min(UInt64(transcriptTailBudget), size))
+    let startOffset = size - UInt64(readLen)
+    do { try handle.seek(toOffset: startOffset) } catch { return nil }
+    guard let data = try? handle.read(upToCount: readLen),
+          let raw = String(data: data, encoding: .utf8) else { return nil }
+
+    // 起点切到行中间时，首个 '\n' 之前是不完整 JSON 片段，丢弃。从文件 0 起读时保留首行。
+    let text: Substring
+    if startOffset > 0, let firstNewline = raw.firstIndex(of: "\n") {
+        text = raw[raw.index(after: firstNewline)...]
+    } else {
+        text = Substring(raw)
+    }
+
+    // JSONL：从尾向前扫。只接受位于"最后一条用户提问之后"的 end_turn assistant，
+    // 否则可能拿到上一轮残留的 end_turn（hopet-emit 启动时本轮 assistant 还没刷盘的常见场景）。
+    //
+    // 扫描终止条件：
+    //   - 命中 stop_reason="end_turn" 的 assistant：返回该行 text。
+    //   - 命中 user 提问行（不是 tool_result）：返回 nil，让调用方轮询等本轮 end_turn 落地。
+    //   - 中间 stop_reason="tool_use" / tool_result / attachment / system 等：跳过。
+    let lines = text.split(separator: "\n", omittingEmptySubsequences: true)
+    for line in lines.reversed() {
+        guard let lineData = line.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any]
+        else { continue }
+        let topType = obj["type"] as? String
+        let messageDict = obj["message"] as? [String: Any]
+        let role = messageDict?["role"] as? String
+
+        // user 行：可能是真用户提问，也可能是 tool_result 注入。tool_result 跳过；
+        // 真用户提问意味着本轮 end_turn 还没刷盘，立即放弃以触发重试。
+        if topType == "user" && role == "user" {
+            let content = messageDict?["content"]
+            if let arr = content as? [[String: Any]] {
+                let allToolResult = !arr.isEmpty && arr.allSatisfy { ($0["type"] as? String) == "tool_result" }
+                if allToolResult { continue }
+            }
+            return nil
+        }
+
+        guard topType == "assistant" || role == "assistant" else { continue }
+        let messageBlock: Any = messageDict ?? obj
+        // stop_reason 通常嵌在 message 里；少数 transcript 把它放在顶层。两处都查一下。
+        let stopReason = (messageDict?["stop_reason"] as? String)
+            ?? (obj["stop_reason"] as? String)
+        guard stopReason == "end_turn" else { continue }
+        if let extracted = collectAssistantText(fromMessage: messageBlock) {
+            return extracted
+        }
+    }
+    return nil
+}
+
+/// 等 transcript 写入本轮 end_turn 行后再抽 assistant text。
+///
+/// Stop hook 触发到文件 flush 之间存在毫秒级（甚至秒级）滞后，且滞后量随磁盘 IO、
+/// Claude Code 版本、系统负载漂移。固定时长 polling 不可靠，改用 fsevents 监听
+/// 文件 write，事件即重读，找到本轮 end_turn 立刻返回。
+///
+/// 流程：
+/// 1. 立即同步读一次（transcript 已 flush 完的常见路径走这里）。
+/// 2. 没读到则打开 fd + DispatchSource 监听 write/extend/delete/rename。
+/// 3. resume 后再 async 读一次（catch-up：覆盖 register 与文件写入之间错过事件的窗口）。
+/// 4. 等 semaphore，超时（默认 5s）兜底——Claude 异常路径下 lastAssistantMessage
+///    宁可留空也不挂住 Stop hook。
+///
+/// 同一 serial queue 跑 event handler 与 catch-up read，settled 标志只在 queue 内
+/// 修改，无需额外锁。
+func waitForLastAssistantText(transcriptPath: String, timeout: TimeInterval) -> String? {
+    if let found = lastAssistantText(fromTranscriptAt: transcriptPath) {
+        return found
+    }
+
+    let fd = open(transcriptPath, O_EVTONLY)
+    guard fd >= 0 else { return nil }
+
+    let queue = DispatchQueue(label: "hopet-emit.transcript-watch")
+    let source = DispatchSource.makeFileSystemObjectSource(
+        fileDescriptor: fd,
+        eventMask: [.write, .extend, .delete, .rename],
+        queue: queue
+    )
+    let sem = DispatchSemaphore(value: 0)
+    var result: String? = nil
+    var settled = false
+
+    let tryReadAndSignal: () -> Void = {
+        if settled { return }
+        if let found = lastAssistantText(fromTranscriptAt: transcriptPath) {
+            result = found
+            settled = true
+            sem.signal()
+        }
+    }
+
+    source.setEventHandler(handler: tryReadAndSignal)
+    source.setCancelHandler { close(fd) }
+    source.resume()
+
+    // catch-up：register/resume 与文件写入之间若已 flush 完成，就不会再有 write
+    // 事件落到 handler，必须主动补一次读。同 queue 串行，与 event handler 不抢。
+    queue.async(execute: tryReadAndSignal)
+
+    _ = sem.wait(timeout: .now() + timeout)
+    source.cancel()
+    return result
+}
+
+if eventRaw == "stop" {
+    var raw: String? = stringify(value(at: "assistant_message", in: hookJson))
+    if (raw ?? "").isEmpty,
+       let tp = stringify(value(at: "transcript_path", in: hookJson)),
+       !tp.isEmpty {
+        raw = waitForLastAssistantText(transcriptPath: tp, timeout: 5.0)
+    }
+    if var msg = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !msg.isEmpty {
+        // 多行折叠成单空格：UI 第二行只展示开头，让换行白白吃掉显示长度不划算。
+        msg = msg.split(whereSeparator: { $0.isNewline })
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        if msg.count > 120 {
+            msg = String(msg.prefix(120))
+        }
+        safePayload["assistant_message"] = msg
+    }
+}
+
 // session_id 解析顺序：override > stdin.session_id > random
 let sessionId: String = args.sessionIdOverride
     ?? (stringify(value(at: "session_id", in: hookJson)))

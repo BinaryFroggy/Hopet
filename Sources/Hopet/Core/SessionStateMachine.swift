@@ -47,9 +47,10 @@ public enum SessionStateMachine {
         case (.askUser, .askUserResolved):
             return .responding
 
-        // 错误：任意状态进入 errorInterrupted
-        case (_, .error):
-            return .errorInterrupted
+        // .error 来自 PostToolUseFailure，覆盖 grep / head / ls 这类 exit-code-非-0 的常态情况，
+        // 不再映射成 .errorInterrupted —— 否则用户每次正常会话里都会看到海豹变红。EventRouter
+        // 仍会借 .error 调 cancelPending 清待决策气泡，但状态机不切。`.errorInterrupted` 保留为
+        // 类型值，留给未来真正需要"会话级错误"语义的事件源（目前没有）。
 
         // stop：任意活跃状态进入 completed
         case (.responding, .stop),

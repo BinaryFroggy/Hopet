@@ -23,9 +23,9 @@ public final class PermissionPrompter {
     // MARK: - Permission（普通工具调用）
 
     /// SocketServer 收到 permission_ask 帧后调用（非 AskUserQuestion 走这条）。
-    public func enqueue(_ event: StateEvent, reply: @escaping @Sendable (Data?) -> Void) {
+    public func enqueue(_ event: StateEvent, channel: SocketServer.ClientChannel) {
         guard let requestId = event.requestId, !requestId.isEmpty else {
-            reply(nil)
+            channel.reply(nil)
             return
         }
 
@@ -43,7 +43,7 @@ public final class PermissionPrompter {
             return String(trimmed.prefix(16_384))
         }()
 
-        pending[requestId] = reply
+        pending[requestId] = { data in channel.reply(data) }
         registry.patch(event.sessionId) { s in
             s.pendingPermission = PendingPermission(
                 requestId: requestId,
@@ -52,6 +52,50 @@ public final class PermissionPrompter {
                 filePath: filePath,
                 plan: plan
             )
+        }
+
+        registerDisconnectCleanup(channel: channel, sessionId: event.sessionId, requestId: requestId)
+    }
+
+    /// hopet-emit 在用户作答前先死了（典型：cc 终端 deny 直接 kill 子进程）⇒ 主动清气泡。
+    /// 不发任何回包，仅清 pending 表 + 把状态机推出 permissionPrompt/askUser 子状态，让 UI 不留躺尸。
+    /// `[weak self]` 捕获的是 var，不能直接进 @Sendable Task 闭包；先 rebind 成 let 常量。
+    private func registerDisconnectCleanup(
+        channel: SocketServer.ClientChannel,
+        sessionId: String,
+        requestId: String
+    ) {
+        channel.onPeerDisconnect { [weak self] in
+            guard let strong = self else { return }
+            Task { @MainActor [strong] in
+                strong.handlePeerDisconnect(sessionId: sessionId, requestId: requestId)
+            }
+        }
+    }
+
+    /// 选取与已清 pending 类型对应的状态机事件：
+    /// - permission 路径 → `.postToolUse`，让 `permissionPrompt` 切回上一态。
+    /// - askUser 路径 → `.askUserResolved`，让 `askUser` 切回 `responding`。
+    /// 状态机表里没有 `(.askUser, .postToolUse)`，统一用 `.postToolUse` 会让 askUser 路径下宠物动画卡住。
+    private func handlePeerDisconnect(sessionId: String, requestId: String) {
+        guard pending.removeValue(forKey: requestId) != nil else { return }
+        let sid = sessionId.hopetShortId
+        let rid = requestId.hopetShortId
+        HopetLog.trace("peer-disconnect", "sid=\(sid) reqId=\(rid) (emit died before user answered)")
+
+        let wasAskUser = registry.session(sessionId)?.pendingAskUser?.requestId == requestId
+        registry.patch(sessionId) { s in
+            if s.pendingPermission?.requestId == requestId {
+                s.pendingPermission = nil
+            }
+            if s.pendingAskUser?.requestId == requestId {
+                s.pendingAskUser = nil
+            }
+        }
+        let advanceEvent: EventKind = wasAskUser ? .askUserResolved : .postToolUse
+        if let current = registry.session(sessionId)?.currentState,
+           let next = SessionStateMachine.nextState(from: current, event: advanceEvent) {
+            registry.transition(sessionId: sessionId, to: next)
         }
     }
 
@@ -99,9 +143,9 @@ public final class PermissionPrompter {
     // MARK: - AskUserQuestion（elicitation）
 
     /// SocketServer 收到 permission_ask 帧且 `tool_name == "AskUserQuestion"` 时走这里。
-    public func enqueueAskUser(_ event: StateEvent, reply: @escaping @Sendable (Data?) -> Void) {
+    public func enqueueAskUser(_ event: StateEvent, channel: SocketServer.ClientChannel) {
         guard let requestId = event.requestId, !requestId.isEmpty else {
-            reply(nil)
+            channel.reply(nil)
             return
         }
 
@@ -110,7 +154,7 @@ public final class PermissionPrompter {
         let originalJSON = (try? JSONSerialization.data(withJSONObject: toolInputDict, options: [])) ?? Data()
 
         // 同时清掉早先 PreToolUse fire-and-forget 设的简单 pendingQuestion，避免气泡内容冲突。
-        pending[requestId] = reply
+        pending[requestId] = { data in channel.reply(data) }
         registry.patch(event.sessionId) { s in
             s.pendingQuestion = nil
             s.pendingAskUser = PendingAskUser(
@@ -119,6 +163,8 @@ public final class PermissionPrompter {
                 originalToolInputJSON: originalJSON
             )
         }
+
+        registerDisconnectCleanup(channel: channel, sessionId: event.sessionId, requestId: requestId)
     }
 
     /// 用户提交答案。answers 形如 `{ "问题文案": "回答" }`，对应 questions 顺序映射。

@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// 单个会话气泡。折叠态 64×64，展开态根据 pendingPermission / pendingAskUser / pendingQuestion 自适应。
+/// 单个会话气泡。永远以圆角矩形像素风卡片形式展示，根据 pendingPermission /
+/// pendingAskUser / pendingQuestion 自适应内容；空闲态展示 cwd / 标题 / 状态徽章。
 ///
 /// 可交互的输入只出现在 PermissionRequest hook 同步打通的两条路径上：
 /// - `pendingPermission`：Allow / Deny / Ask 按钮，回包通过挂起的 socket。
@@ -18,37 +19,27 @@ public struct SessionBubbleView: View {
 
     let bubble: SessionBubble
     let isLeader: Bool
-    /// 折叠态用的紧凑耗时，例如 "5m" / "30s"。
-    let elapsedShort: String
-    /// 展开态用的描述：运行中显示"已运行 X"，闲置显示"X 前"。
+    /// 描述：运行中显示"已运行 X"，闲置显示"X 前"。
     let stateDurationPhrase: String
-    let onTap: () -> Void
     /// (decision, reason). `decision` ∈ {"allow", "deny", "ask"}；`reason` 仅 deny 路径有意义
     /// （承载 plan-approval "继续规划" 默认理由或用户自定义反馈）。
     let onResolvePermission: (String, String?) -> Void
     /// AskUserQuestion 答题提交回调。`answers` 形如 `{ "问题文案": "回答" }`；
     /// `cancel = true` 表示用户取消（让 Claude 走自身 UI）。
     let onResolveAskUser: ([String: String], Bool) -> Void
-    let onDismiss: () -> Void
 
     public init(
         bubble: SessionBubble,
         isLeader: Bool,
-        elapsedShort: String,
         stateDurationPhrase: String,
-        onTap: @escaping () -> Void,
         onResolvePermission: @escaping (String, String?) -> Void = { _, _ in },
-        onResolveAskUser: @escaping ([String: String], Bool) -> Void = { _, _ in },
-        onDismiss: @escaping () -> Void
+        onResolveAskUser: @escaping ([String: String], Bool) -> Void = { _, _ in }
     ) {
         self.bubble = bubble
         self.isLeader = isLeader
-        self.elapsedShort = elapsedShort
         self.stateDurationPhrase = stateDurationPhrase
-        self.onTap = onTap
         self.onResolvePermission = onResolvePermission
         self.onResolveAskUser = onResolveAskUser
-        self.onDismiss = onDismiss
     }
 
     @FocusState private var inputFocused: Bool
@@ -68,19 +59,7 @@ public struct SessionBubbleView: View {
 
     public var body: some View {
         ZStack {
-            if bubble.expanded {
-                expandedCard
-                    .transition(.asymmetric(
-                        insertion: .scale(scale: 0.35, anchor: .center).combined(with: .opacity),
-                        removal: .bubblePopOut
-                    ))
-            } else {
-                collapsedDot
-                    .transition(.asymmetric(
-                        insertion: .scale(scale: 0.6, anchor: .center).combined(with: .opacity),
-                        removal: .scale(scale: 0.6, anchor: .center).combined(with: .opacity)
-                    ))
-            }
+            cardBody
 
             // 炸开粒子层：8-bit 风格用方块代替圆形，硬边描边，无模糊。
             ForEach(popParticles) { p in
@@ -94,13 +73,11 @@ public struct SessionBubbleView: View {
             }
             .allowsHitTesting(false)
         }
-        .animation(.spring(response: 0.34, dampingFraction: 0.78), value: bubble.expanded)
     }
 
-    /// 触发"炸开 → 执行 action"：先散粒子，再调闭包。所有让大泡泡消失的入口都走它。
-    /// - 默认普通态点击收起：`popThen { onTap() }`
-    /// - 决策类按钮：`popThen { onResolvePermission(...) }` / `popThen { onResolveAskUser(...) }`
-    /// - 关闭按钮：`popThen { onDismiss() }`
+    /// 决策按钮按下的反馈动画：先散粒子，再调闭包回写决策。
+    /// `pendingPermission` / `pendingAskUser` 解决后由协议层把字段置空，
+    /// 视图自然重渲染回默认卡片（不再有"小气泡缩回"语义）。
     private func popThen(_ action: @escaping () -> Void) {
         guard popParticles.isEmpty else { return }  // 防抖：动画期间忽略二次触发
         let count = 10
@@ -137,66 +114,30 @@ public struct SessionBubbleView: View {
         }
     }
 
-    private var collapsedDot: some View {
-        let isRunning = bubble.state.isRunning
-
-        return VStack(spacing: 2) {
-            HStack(spacing: 3) {
-                Rectangle()
-                    .fill(bubble.state.accentColor)
-                    .frame(width: 6, height: 6)
-                Text(bubble.displayCwd)
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                    .truncationMode(.middle)
-            }
-            HStack(spacing: 2) {
-                Image(systemName: isRunning ? "play.fill" : "clock")
-                    .font(.system(size: 7))
-                Text(elapsedShort)
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                    .lineLimit(1)
-            }
-            .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 6)
-        .frame(width: 64, height: 64)
-        .modifier(PixelChrome(
-            shape: .circle,
-            accent: bubble.state.accentColor,
-            strokeWidth: isLeader ? 1.5 : 1,
-            strokeColor: Color(white: 0.32).opacity(0.85)
-        ))
-        .contentShape(Circle())
-        .onTapGesture { onTap() }
-    }
-
+    /// 卡片主体：所有形态都共用同一种像素圆角矩形外壳，仅内部内容随
+    /// pendingPermission / pendingAskUser / pendingQuestion 自适应。
+    /// 优先级：plan-approval > permission > AskUserQuestion 答题 > 旧 fire-and-forget pendingQuestion > 默认信息卡。
     @ViewBuilder
-    private var expandedCard: some View {
-        // 优先级：权限请求 > 结构化 AskUserQuestion > 早期 fire-and-forget pendingQuestion > 普通输入。
-        // 同时只能渲染一种主体内容。
-        // 决策类卡片信息密集（按钮组、列表、文本框），保持像素圆角矩形；
-        // 默认大气泡是单行信息卡，做成胶囊更接近漫画对话框。
+    private var cardBody: some View {
         if let pp = bubble.pendingPermission, pp.isPlanApproval {
-            planApprovalCard.modifier(decisionChrome(shape: .rect(cornerRadius: 10)))
+            planApprovalCard.modifier(decisionChrome())
         } else if bubble.pendingPermission != nil {
-            permissionCard.modifier(decisionChrome(shape: .rect(cornerRadius: 10)))
+            permissionCard.modifier(decisionChrome())
         } else if bubble.pendingAskUser != nil {
-            elicitationCard.modifier(decisionChrome(shape: .rect(cornerRadius: 10)))
+            elicitationCard.modifier(decisionChrome())
         } else if bubble.pendingQuestion != nil {
-            askUserCard.modifier(decisionChrome(shape: .rect(cornerRadius: 10)))
+            askUserCard.modifier(decisionChrome())
         } else {
-            defaultCard.modifier(decisionChrome(shape: .capsule))
+            defaultCard.modifier(decisionChrome())
         }
     }
 
-    /// 大气泡共用外壳：accent 跟随当前 PetState，黑描边 + 2pt 厚度统一。
-    private func decisionChrome(shape: PixelChrome.Shape) -> PixelChrome {
+    /// 大气泡共用外壳：圆角矩形像素风。leader session 描边略加粗以区分谁在驱动宠物。
+    private func decisionChrome() -> PixelChrome {
         PixelChrome(
-            shape: shape,
+            cornerRadius: 10,
             accent: bubble.state.accentColor,
-            strokeWidth: 2,
+            strokeWidth: isLeader ? 2.5 : 2,
             strokeColor: Color.black.opacity(0.92)
         )
     }
@@ -229,15 +170,15 @@ public struct SessionBubbleView: View {
     /// 权限请求卡片（PermissionRequest hook 触发）。
     private var permissionCard: some View {
         let pp = bubble.pendingPermission!
-        return VStack(alignment: .leading, spacing: 14) {
+        return VStack(alignment: .leading, spacing: 10) {
             // Header：工具名（caps tracking）+ 隐藏式关闭。
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 Image(systemName: "shield.lefthalf.filled")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(bubble.state.accentColor)
                 Text(pp.toolName.uppercased())
-                    .font(.system(size: 10, weight: .semibold))
-                    .tracking(0.8)
+                    .font(.system(size: 9, weight: .semibold))
+                    .tracking(0.7)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer()
@@ -246,26 +187,26 @@ public struct SessionBubbleView: View {
 
             // 主标题
             Text("Claude 想执行此操作")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.primary)
 
             // 详情：command / filePath
             if let cmd = pp.command {
                 detailBlock {
                     Text(cmd)
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.primary)
-                        .lineLimit(5)
+                        .lineLimit(4)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else if let fp = pp.filePath {
                 detailBlock {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
                         Image(systemName: "doc.text")
-                            .font(.system(size: 11))
+                            .font(.system(size: 10))
                             .foregroundStyle(.secondary)
                         Text(fp)
-                            .font(.system(size: 12, design: .monospaced))
+                            .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(.primary)
                             .lineLimit(2)
                             .truncationMode(.middle)
@@ -275,7 +216,7 @@ public struct SessionBubbleView: View {
             }
 
             // 操作按钮：所有按钮都先播炸开动画再回调
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 Button("拒绝") { popThen { onResolvePermission("deny", nil) } }
                     .buttonStyle(PixelButtonStyle(tint: SessionBubbleView.denyRose, prominent: true))
                 Spacer()
@@ -285,11 +226,10 @@ public struct SessionBubbleView: View {
                     .keyboardShortcut(.return, modifiers: [])
                     .buttonStyle(PixelButtonStyle(tint: .green, prominent: true))
             }
-            .padding(.top, 2)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 16)
-        .frame(width: 380)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(width: 300)
         .fixedSize(horizontal: false, vertical: true)
     }
 
@@ -298,10 +238,10 @@ public struct SessionBubbleView: View {
     private var planApprovalCard: some View {
         let pp = bubble.pendingPermission!
 
-        return VStack(alignment: .leading, spacing: 12) {
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 Text("接受此 plan?")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.primary)
                 Spacer()
                 handoffXButton { popThen { onResolvePermission("ask", nil) } }
@@ -311,16 +251,16 @@ public struct SessionBubbleView: View {
                 detailBlock {
                     ScrollView {
                         Text(plan)
-                            .font(.system(size: 11))
+                            .font(.system(size: 10))
                             .foregroundStyle(.primary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .textSelection(.enabled)
                     }
-                    .frame(maxHeight: 220)
+                    .frame(maxHeight: 180)
                 }
             }
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 3) {
                 planOptionRow(index: 1, label: "允许执行", isPrimary: true) {
                     popThen { onResolvePermission("allow", nil) }
                 }
@@ -333,18 +273,18 @@ public struct SessionBubbleView: View {
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(1...3)
                 .focused($inputFocused)
-                .font(.system(size: 11))
+                .font(.system(size: 10))
                 .onSubmit { submitPlanFeedback() }
 
             Text("如需后续自动放行，请到 Claude Code 终端按 Shift+Tab 切换 auto-accept 模式")
-                .font(.system(size: 10))
+                .font(.system(size: 9))
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 16)
-        .frame(width: 420)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(width: 320)
         .fixedSize(horizontal: false, vertical: true)
     }
 
@@ -414,10 +354,10 @@ public struct SessionBubbleView: View {
         let idx = min(elicitationIndex, total - 1)
         let current: AskUserQuestionItem? = pa.questions.indices.contains(idx) ? pa.questions[idx] : nil
 
-        return VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(total > 1 ? "❓ 在等你回答（\(idx + 1)/\(total)）" : "❓ 在等你回答")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                 Spacer()
                 paletteDismissButton {
                     popThen { onResolveAskUser([:], true) }
@@ -426,7 +366,7 @@ public struct SessionBubbleView: View {
 
             if let q = current {
                 Text(q.question)
-                    .font(.system(size: 11))
+                    .font(.system(size: 10))
                     .foregroundStyle(.primary)
                     .lineLimit(4)
 
@@ -436,7 +376,7 @@ public struct SessionBubbleView: View {
                     let multi = q.multiSelect == true
                     let selected = elicitationSelected[q.question] ?? []
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 4) {
+                        VStack(alignment: .leading, spacing: 3) {
                             ForEach(opts, id: \.label) { opt in
                                 let isSelected = multi && selected.contains(opt.label)
                                 Button(action: {
@@ -447,27 +387,27 @@ public struct SessionBubbleView: View {
                                         advanceOrSubmit(pa: pa)
                                     }
                                 }) {
-                                    HStack(alignment: .top, spacing: 6) {
+                                    HStack(alignment: .top, spacing: 5) {
                                         if multi {
                                             Image(systemName: isSelected ? "checkmark.square.fill" : "square")
                                                 .foregroundStyle(isSelected ? Color.accentColor : .secondary)
                                                 .padding(.top, 1)
                                         }
-                                        VStack(alignment: .leading, spacing: 2) {
+                                        VStack(alignment: .leading, spacing: 1) {
                                             Text(opt.label)
-                                                .font(.system(size: 11, weight: .medium))
+                                                .font(.system(size: 10, weight: .medium))
                                                 .foregroundStyle(.primary)
                                             if let desc = opt.description, !desc.isEmpty {
                                                 Text(desc)
-                                                    .font(.system(size: 10))
+                                                    .font(.system(size: 9))
                                                     .foregroundStyle(.secondary)
                                                     .fixedSize(horizontal: false, vertical: true)
                                             }
                                         }
                                         Spacer(minLength: 0)
                                     }
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 6)
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 5)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .background(
                                         RoundedRectangle(cornerRadius: 6)
@@ -487,6 +427,7 @@ public struct SessionBubbleView: View {
                         .textFieldStyle(.roundedBorder)
                         .lineLimit(1...4)
                         .focused($inputFocused)
+                        .font(.system(size: 10))
                         .onSubmit { advanceOrSubmit(pa: pa) }
                 }
             }
@@ -495,6 +436,7 @@ public struct SessionBubbleView: View {
                 if idx > 0 {
                     Button("上一题") { elicitationIndex = idx - 1 }
                         .buttonStyle(.bordered)
+                        .controlSize(.small)
                 }
                 Spacer()
                 Button(idx < total - 1 ? "下一题" : "发送") {
@@ -502,12 +444,13 @@ public struct SessionBubbleView: View {
                 }
                 .keyboardShortcut(.return, modifiers: [])
                 .buttonStyle(.borderedProminent)
+                .controlSize(.small)
                 .disabled(!hasAnswer(for: current))
             }
         }
-        .padding(12)
-        .frame(width: 360)
-        .frame(minHeight: 220, maxHeight: 460)
+        .padding(10)
+        .frame(width: 300)
+        .frame(minHeight: 180, maxHeight: 380)
         .onAppear { inputFocused = true }
     }
 
@@ -569,81 +512,78 @@ public struct SessionBubbleView: View {
     }
 
     /// 旧 fire-and-forget pendingQuestion 卡片（PreToolUse `tool_name=AskUserQuestion` 路径）。
-    /// 这条路径没带 requestId，无法同步回包，只能展示提示让用户回到原终端作答。
-    /// 新版本若 PermissionRequest 同步路径触发，会优先走 elicitationCard。
+    /// 这条路径没带 requestId，无法同步回包，只能展示提示让用户回到原终端作答；
+    /// 新会话列表布局下卡片常驻显示，没有"关闭"语义——pendingQuestion 由协议层在
+    /// 下一次状态变更时自然清空，视图随即回到 defaultCard。
     private var askUserCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("❓ 在等你回答")
-                    .font(.system(size: 12, weight: .semibold))
-                Spacer()
-                paletteDismissButton { popThen { onDismiss() } }
-            }
+        VStack(alignment: .leading, spacing: 6) {
+            Text("❓ 在等你回答")
+                .font(.system(size: 11, weight: .semibold))
             if let q = bubble.pendingQuestion {
                 Text(q)
-                    .font(.system(size: 11))
+                    .font(.system(size: 10))
                     .foregroundStyle(.primary)
                     .lineLimit(4)
             }
             Text("请到原终端 / Claude UI 回答。")
-                .font(.system(size: 10))
+                .font(.system(size: 9))
                 .foregroundStyle(.secondary)
         }
-        .padding(12)
-        .frame(width: 320, height: 130)
+        .padding(10)
+        .frame(width: 260)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// 默认卡片：横向不规则大气泡。展示目录、标题（若有）、状态持续时长。整张卡再点击一次收起。
+    /// 默认卡片：两行布局——
+    /// - 第 1 行：状态圆点 + `cwd · title`（无 title 只显示 cwd）+ 右端 stateDurationPhrase
+    /// - 第 2 行：最近一次 Claude 回复的开头，9pt secondary，最多 2 行；没有回复时回退到状态徽章
+    ///   （状态文字已在第一行右端用耗时短语承担时间信息，这里 fallback 让卡片不出现空行抖动）
     private var defaultCard: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Circle()
-                .fill(bubble.state.accentColor)
-                .frame(width: 8, height: 8)
-                .padding(.top, 6)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .center, spacing: 8) {
+                Circle()
+                    .fill(bubble.state.accentColor)
+                    .frame(width: 6, height: 6)
 
-            VStack(alignment: .leading, spacing: 3) {
-                if bubble.hasTitle {
-                    Text(bubble.displayCwd)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text(bubble.displayTitle)
-                        .font(.system(size: 13, weight: .semibold))
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    // 没有真实标题：只渲染目录，不再补占位"标题"行，避免重复。
-                    Text(bubble.displayCwd)
-                        .font(.system(size: 13, weight: .semibold))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-            }
-
-            Spacer(minLength: 8)
-
-            VStack(alignment: .trailing, spacing: 3) {
-                // 状态文字保持中性色：状态色由左侧小圆点承担，文字不再夹带 emoji 也不再换色。
-                Text(bubble.state.badgeLabel)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
+                Text(headerLabel)
+                    .font(.system(size: 11, weight: .semibold))
                     .lineLimit(1)
-                    .fixedSize()
+                    .truncationMode(.middle)
+
+                Spacer(minLength: 6)
+
                 Text(stateDurationPhrase)
-                    .font(.system(size: 10))
+                    .font(.system(size: 9))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .fixedSize()
             }
+
+            Text(secondLineText)
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
-        .frame(width: 360, alignment: .leading)
-        .frame(minHeight: 76)
-        .contentShape(Rectangle())
-        .onTapGesture { popThen { onTap() } }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(width: 260, alignment: .leading)
+    }
+
+    /// 第一行：有真实标题时 `cwd · title`，否则只渲染 cwd。
+    private var headerLabel: String {
+        bubble.hasTitle
+            ? "\(bubble.displayCwd) · \(bubble.displayTitle)"
+            : bubble.displayCwd
+    }
+
+    /// 第二行：优先展示最近一次回复的开头；没回复就 fallback 到状态徽章文字（避免卡片高度跳变）。
+    private var secondLineText: String {
+        if let msg = bubble.lastAssistantMessage, !msg.isEmpty {
+            return msg
+        }
+        return bubble.state.badgeLabel
     }
 }
 
@@ -658,28 +598,11 @@ private struct PopParticle: Identifiable {
     var scale: CGFloat
 }
 
-private extension AnyTransition {
-    /// 8-bit 风的"压扁消失"：缩放 + 淡出，无模糊。配合方块粒子完成 pop 效果。
-    static var bubblePopOut: AnyTransition {
-        .scale(scale: 0.85, anchor: .center).combined(with: .opacity)
-    }
-}
-
 /// 8-bit 像素风外壳：阶梯像素圆角 + 近白底 + 顶部高光 + 块状阴影。所有几何沿 `pixelSize` 方格对齐，
 /// 圆角处呈现可见的 2pt 颗粒阶梯——视觉上对齐参考素材的复古 UI 边缘，与小海豹 sprite 同语言。
-/// `shape` 切换三种漫画对话框形状：
-///   - `.rect(r)`：固定圆角矩形（决策类卡片）
-///   - `.capsule`：cornerRadius = min(w,h)/2，长条椭圆/胶囊（默认大气泡）
-///   - `.circle`：min(w,h)/2 + 任意框成正方形时退化成圆（折叠态小气泡）
-/// 描边宽度 / 颜色独立可调：折叠态小气泡偏好细灰描边（不抢戏），决策类大卡片偏好粗黑描边（强调）。
+/// 描边宽度 / 颜色独立可调：leader session 偏好略粗的黑描边（强调），其余气泡保持基础粗细。
 private struct PixelChrome: ViewModifier {
-    enum Shape: Equatable {
-        case rect(cornerRadius: CGFloat)
-        case capsule
-        case circle
-    }
-
-    let shape: Shape
+    let cornerRadius: CGFloat
     let accent: Color
     let strokeWidth: CGFloat
     let strokeColor: Color
@@ -692,8 +615,8 @@ private struct PixelChrome: ViewModifier {
         return content
             .padding(strokeInset + 1)  // 让内容不撞到内层亮边
             .background(
-                GeometryReader { proxy in
-                    let cr = self.cornerRadius(in: proxy.size)
+                GeometryReader { _ in
+                    let cr = self.cornerRadius
                     let outer = PixelRoundedRectangle(cornerRadius: cr, pixelSize: pixel)
                     let inner = PixelRoundedRectangle(
                         cornerRadius: max(pixel, cr - strokeInset),
@@ -725,13 +648,6 @@ private struct PixelChrome: ViewModifier {
                     }
                 }
             )
-    }
-
-    private func cornerRadius(in size: CGSize) -> CGFloat {
-        switch shape {
-        case .rect(let r): return r
-        case .capsule, .circle: return min(size.width, size.height) / 2
-        }
     }
 }
 

@@ -13,7 +13,6 @@ public enum HopetPaths {
     public static var logs:   URL { home.appendingPathComponent("logs",   isDirectory: true) }
 
     public static var socket:        URL { run.appendingPathComponent("hopetd.sock") }
-    public static var sessionsState: URL { state.appendingPathComponent("sessions.json") }
     public static var configFile:    URL { home.appendingPathComponent("config.json") }
     public static var bindingsFile:  URL { home.appendingPathComponent("bindings.json") }
 
