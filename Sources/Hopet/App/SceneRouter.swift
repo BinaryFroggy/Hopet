@@ -63,14 +63,9 @@ public final class SceneRouter {
                 HopetLog.trace("claude hooks install failed: \(error)")
             }
 
-            // restore recent sessions
-            for session in PersistentStore.loadRecent() {
-                registry.upsert(session)
-            }
-
             let router = self.router
-            let server = SocketServer { data, reply in
-                Task { @MainActor in router.handleRaw(data, reply: reply) }
+            let server = SocketServer { data, channel in
+                Task { @MainActor in router.handleRaw(data, channel: channel) }
             }
             try server.start()
             self.server = server
@@ -89,7 +84,6 @@ public final class SceneRouter {
     }
 
     public func shutdown() {
-        PersistentStore.save(Array(registry.sessions.values))
         thinkingTimer.stop()
         decayTimer.stop()
         notchController.hide()

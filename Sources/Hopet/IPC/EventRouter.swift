@@ -83,15 +83,16 @@ public final class EventRouter {
         }
     }
 
-    /// 喂入原始 JSON Data（来自 socket）+ 可回写决策的 reply 闭包。
-    /// permission_ask + 携带 requestId 的事件会挂起 reply，等用户在气泡上做决定。
+    /// 喂入原始 JSON Data（来自 socket）+ 可回写决策的连接 channel。
+    /// permission_ask + 携带 requestId 的事件会挂起 channel，等用户在气泡上做决定；
+    /// 对端 EOF 时 channel 会触发 PermissionPrompter 注册的 disconnect 回调清理 UI。
     /// AskUserQuestion（tool_name == "AskUserQuestion"）也通过 PermissionRequest hook 进来，
     /// 走结构化 elicitation 路径：回包带 updatedInput.answers。
     ///
     /// 子 agent 处理：fire-and-forget（pre/post tool use 等）丢弃避免气泡爆炸；
     /// 但 permission_ask / askUser 这两类用户必须回答的同步事件，**重路由**到所属 transcript 的主
     /// session 上挂气泡——否则 Hopet 完全沉默而 Claude 弹自己的 fallback UI，体验割裂。
-    public func handleRaw(_ data: Data, reply: @escaping @Sendable (Data?) -> Void) {
+    public func handleRaw(_ data: Data, channel: SocketServer.ClientChannel) {
         do {
             let raw = try Self.decoder.decode(StateEvent.self, from: data)
             // AskUserQuestion 在 hook 协议里是 permission_ask + tool_name="AskUserQuestion"。
@@ -105,10 +106,10 @@ public final class EventRouter {
             let isSyncRequest = (normalized.event == .permissionAsk || normalized.event == .askUser)
                 && normalized.requestId != nil
 
-            // 子 agent 的 fire-and-forget：保留原"丢弃 + reply nil"。trace 由 handle() 写一行。
+            // 子 agent 的 fire-and-forget：保留原"丢弃 + 关连接"。trace 由 handle() 写一行。
             if subagent && !isSyncRequest {
                 handle(normalized)
-                reply(nil)
+                channel.reply(nil)
                 return
             }
 
@@ -132,19 +133,19 @@ public final class EventRouter {
                 switch routed.event {
                 case .askUser:
                     HopetLog.trace("askuser", "enqueue sid=\(sidShort) reqId=\(reqShort)")
-                    permissionPrompter.enqueueAskUser(routed, reply: reply)
+                    permissionPrompter.enqueueAskUser(routed, channel: channel)
                 case .permissionAsk:
                     HopetLog.trace("perm", "enqueue sid=\(sidShort) reqId=\(reqShort)")
-                    permissionPrompter.enqueue(routed, reply: reply)
+                    permissionPrompter.enqueue(routed, channel: channel)
                 default:
-                    reply(nil)
+                    channel.reply(nil)
                 }
             } else {
-                reply(nil)
+                channel.reply(nil)
             }
         } catch {
             HopetLog.trace("error", "decode StateEvent failed: \(error)")
-            reply(nil)
+            channel.reply(nil)
         }
     }
 
@@ -188,20 +189,23 @@ public final class EventRouter {
     /// 时清掉。漏发 SessionEnd 的常见场景：宿主被强关、Hopet 启停错位、IDE extension host 重载导致
     /// claude-code 子进程换 PID + 换 sid。不清的话用户就会看到"一个会话却有多个气泡"。
     ///
-    /// 区分两类同 cwd 的旧 session：
-    /// - IDE 内嵌（terminalTty == nil）：extension host 独占该项目目录的 claude-code 实例，新 session_start
-    ///   必然是替身，无视状态一律清。
-    /// - 真终端（terminalTty != nil）：iTerm / Ghostty 多 tab 可能合法并发，仅清确实闲下来的；
-    ///   仍在运行的（PetState.isRunning == true）保留。
+    /// 但 IDE（Cursor）同一项目下也支持多 chat panel 并行，真终端也支持多 tab 并发——不能因为
+    /// 同 cwd / 同宿主就一律清。判据只看"是否还活着"：
+    /// - 状态是终态（idle / completed / errorInterrupted）→ 清，旧会话已经收尾。
+    /// - 状态 running 但 lastActivityAt 远超 stalenessThreshold → 清，认定卡死躺尸。
+    /// - 状态 running 且最近有事件 → 保留，是用户主动并行的合法会话。
+    private static let stalenessThreshold: TimeInterval = 90
     private func pruneStaleSiblings(of new: Session) {
+        let now = Date()
         let victims = registry.activeSessions(of: new.tool).filter { other in
             guard other.id != new.id, other.cwd == new.cwd else { return false }
-            // IDE 内嵌（无 tty）→ 一律清；真终端 → 只清非运行中的。
-            return other.terminalTty == nil || !other.currentState.isRunning
+            if !other.currentState.isRunning { return true }
+            return now.timeIntervalSince(other.lastActivityAt) > Self.stalenessThreshold
         }
         for v in victims {
             let host = v.terminalTty.map { "tty=\($0)" } ?? "ide-embedded"
-            HopetLog.trace("autoprune", "remove stale peer sid=\(v.id.hopetShortId) cwd=\(new.cwd) state=\(v.currentState.rawValue) host=\(host) (replaced by sid=\(new.id.hopetShortId))")
+            let idle = Int(now.timeIntervalSince(v.lastActivityAt))
+            HopetLog.trace("autoprune", "remove stale peer sid=\(v.id.hopetShortId) cwd=\(new.cwd) state=\(v.currentState.rawValue) idle=\(idle)s host=\(host) (replaced by sid=\(new.id.hopetShortId))")
             permissionPrompter.cancelPending(sessionId: v.id)
             registry.remove(v.id)
             cleanupMaps(removedSessionId: v.id)
@@ -210,7 +214,19 @@ public final class EventRouter {
 
     private func handleStateEvent(_ event: StateEvent) {
         // 若 session 不存在（外部启动 + 跳过 SessionStart），按需即时创建。
+        // 仅"流程开端"类事件（user_prompt / pre_tool_use / permission_ask / ask_user / thinking_start）
+        // 才允许冷启建 session，其它（stop / error / post_tool_use / ask_user_resolved / session_end）
+        // 在缺少先行配对时大概率是迟到帧 / 手工 emit / 污染源——凭空建一个 session 然后立刻
+        // .completed/.idle 只会让用户看到莫名其妙的"僵尸气泡"。这类事件下 session 不存在就静默丢弃。
         if registry.session(event.sessionId) == nil {
+            switch event.event {
+            case .sessionStart, .userPrompt, .preToolUse, .permissionAsk, .askUser, .thinkingStart:
+                break
+            default:
+                HopetLog.trace("skip",
+                    "orphan evt=\(event.event.rawValue) sid=\(event.sessionId.hopetShortId) (no session)")
+                return
+            }
             let session = Session(
                 id: event.sessionId,
                 tool: event.tool,
@@ -235,15 +251,28 @@ public final class EventRouter {
             case .userPrompt:
                 if let snippet = event.stringValue(forKey: "prompt") {
                     s.lastPromptSnippet = String(snippet.prefix(256))
-                    if s.title == nil {
-                        s.title = String(snippet.prefix(32))
-                    }
+                    // 每次提问都刷新 title：会话标题随当前语境走，而不是冻结在第一次提问。
+                    // 否则用户连发几轮提问后，气泡 header 还停留在第一次的开头。
+                    s.title = String(snippet.prefix(32))
                 }
+                // 新一轮开始：清掉上一轮的 assistant 尾声，避免在"思考中"语境里
+                // 还显示几分钟前那段已不相关的回复。
+                s.lastAssistantMessage = nil
             case .askUser:
                 let q = event.stringValue(forKey: "tool_input.question")
                        ?? event.stringValue(forKey: "message")
                        ?? "Claude 在等你回答"
                 s.pendingQuestion = q
+            case .stop:
+                // hopet-emit 已从 transcript 抽取最后一段 assistant 文本并截断到 120 字符；
+                // 此处直接落到 session 让默认气泡第二行渲染。空字符串视同没拿到，置 nil。
+                if let msg = event.stringValue(forKey: "assistant_message") {
+                    let trimmed = msg.trimmingCharacters(in: .whitespacesAndNewlines)
+                    s.lastAssistantMessage = trimmed.isEmpty ? nil : trimmed
+                    HopetLog.trace("stop", "sid=\(event.sessionId.hopetShortId) msg.len=\(trimmed.count) head=\"\(trimmed.prefix(32))\"")
+                } else {
+                    HopetLog.trace("stop", "sid=\(event.sessionId.hopetShortId) no assistant_message in payload")
+                }
             default:
                 break
             }

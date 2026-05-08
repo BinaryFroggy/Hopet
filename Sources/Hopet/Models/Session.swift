@@ -95,6 +95,10 @@ public struct Session: Codable, Identifiable, Hashable, Sendable {
     /// 最近一次收到任何事件的时间戳；用于陈旧 session 清理（VS Code 插件等不发 session_end 的场景）。
     public var lastActivityAt: Date
     public var lastPromptSnippet: String?
+    /// 上一轮 Claude 完成回复时（Stop hook）写入的回复开头，已截断到 120 字符。
+    /// 默认气泡第二行渲染用。在 UserPromptSubmit（开始新一轮）时清空，避免把上一轮尾声
+    /// 串到新一轮的"思考中"语境里。
+    public var lastAssistantMessage: String?
 
     /// AskUserQuestion 当前的提问文案（PreToolUse 路径填，fire-and-forget，仅展示用）。
     /// 当 `pendingAskUser` 也存在时，气泡优先用结构化的 `pendingAskUser` 来渲染并允许直接作答。
@@ -117,6 +121,7 @@ public struct Session: Codable, Identifiable, Hashable, Sendable {
         stateSince: Date = Date(),
         lastActivityAt: Date = Date(),
         lastPromptSnippet: String? = nil,
+        lastAssistantMessage: String? = nil,
         pendingQuestion: String? = nil,
         pendingAskUser: PendingAskUser? = nil,
         pendingPermission: PendingPermission? = nil
@@ -133,6 +138,7 @@ public struct Session: Codable, Identifiable, Hashable, Sendable {
         self.stateSince = stateSince
         self.lastActivityAt = lastActivityAt
         self.lastPromptSnippet = lastPromptSnippet
+        self.lastAssistantMessage = lastAssistantMessage
         self.pendingQuestion = pendingQuestion
         self.pendingAskUser = pendingAskUser
         self.pendingPermission = pendingPermission

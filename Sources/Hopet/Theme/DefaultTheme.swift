@@ -27,7 +27,7 @@ public enum DefaultTheme {
             .idle:             "seal-idle",
             .thinking:         "seal-thinking",
             .responding:       "seal-working",
-            .toolUse:          "seal-tool-use",
+            .toolUse:          "seal-play-ball",
             .permissionPrompt: "seal-permission-prompt",
             .askUser:          "seal-ask-user",
             .completed:        "seal-completed",
