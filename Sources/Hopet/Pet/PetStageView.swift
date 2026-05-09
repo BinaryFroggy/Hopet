@@ -20,16 +20,29 @@ public struct PetStageView: View {
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     private static let scrollSpaceName = "petStageScroll"
 
-    /// 可视区目标可见数：用来推导 `bubbleAreaMaxHeight`，并不是硬上限——
-    /// 卡片膨胀（permission / elicitation / plan-approval）时单卡占高更大，可见数自然变少。
+    /// default 卡片场景下希望同时可见的条数；第 6 条开始进入滚动区。
     private static let maxVisibleBubbles: Int = 5
     /// 单个 default 卡片的估算高度（两行文本 + 内外 padding），见 SessionBubbleView.defaultCard。
     private static let defaultBubbleHeight: CGFloat = 56
-    /// 气泡可视区域的最大高度：约 5 个 default 卡片 + 间距，超出则启用垂直滚动。
-    private static let bubbleAreaMaxHeight: CGFloat =
+    /// 展开卡片的保守估算高度。pending 刚出现时 ScrollView 仍握着旧的 default 高度，
+    /// 必须先用这些 hint 撑开视口，下一轮 GeometryReader 才能量到真实高度。
+    private static let permissionBubbleHeight: CGFloat = 260
+    private static let planApprovalBubbleHeight: CGFloat = 430
+    private static let askUserBubbleHeight: CGFloat = 390
+    private static let legacyQuestionBubbleHeight: CGFloat = 120
+    /// 普通气泡可视区域上限：约 5 个 default 卡片 + 间距。
+    private static let defaultBubbleAreaMaxHeight: CGFloat =
         defaultBubbleHeight * CGFloat(maxVisibleBubbles)
         + interBubbleSpacing * CGFloat(maxVisibleBubbles - 1)
         + contentVerticalPadding * 2
+    /// 展开卡片可视区域上限：取窗口可用空间。permission / plan-approval / askUser
+    /// 变高时临时使用这个 cap，再配合 scrollTo 让边缘卡片不被裁切。
+    private static let expandedBubbleAreaMaxHeight: CGFloat =
+        PetWindow.stageSize.height
+        - PetBadgeView.renderedSize
+        - petBottomPadding
+        - bubbleToPetGap
+        - contentVerticalPadding * 2
     /// ScrollView 内容给描边预留的上下安全边。
     private static let contentVerticalPadding: CGFloat = 1
     /// 气泡列与宠物头顶之间的视觉间距。
@@ -64,26 +77,42 @@ public struct PetStageView: View {
             .sorted { $0.startedAt > $1.startedAt }
     }
 
-    /// 少于 5 条时视口跟内容等高，否则离海豹头顶会出现一截空白；超过 5 条时 cap 住启用滚动。
+    /// 少于 5 条普通气泡时视口跟内容等高，否则离海豹头顶会出现一截空白；
+    /// 超过 5 条时 cap 住启用滚动。若存在 pending 展开卡片，临时放大 cap 让卡片完整进入视口。
     private func bubbleViewportHeight(sessions: [Session]) -> CGFloat {
         guard !sessions.isEmpty else { return 0 }
-        let measured = scrollMetrics.contentHeight > 0
-            ? scrollMetrics.contentHeight
-            : estimatedBubbleContentHeight(count: sessions.count)
-        return min(measured, PetStageView.bubbleAreaMaxHeight)
+        let estimated = estimatedBubbleContentHeight(sessions: sessions)
+        let measured = scrollMetrics.contentHeight > 0 ? scrollMetrics.contentHeight : estimated
+        let maxHeight = pendingFocusId(in: sessions) == nil
+            ? PetStageView.defaultBubbleAreaMaxHeight
+            : PetStageView.expandedBubbleAreaMaxHeight
+        return min(max(measured, estimated), maxHeight)
     }
 
-    private func estimatedBubbleContentHeight(count: Int) -> CGFloat {
-        let visibleCount = min(count, PetStageView.maxVisibleBubbles)
-        let spacingCount = max(visibleCount - 1, 0)
-        return PetStageView.defaultBubbleHeight * CGFloat(visibleCount)
+    private func estimatedBubbleContentHeight(sessions: [Session]) -> CGFloat {
+        let bubblesHeight = sessions.reduce(CGFloat(0)) { partial, session in
+            partial + estimatedBubbleHeight(session)
+        }
+        let spacingCount = max(sessions.count - 1, 0)
+        return bubblesHeight
             + PetStageView.interBubbleSpacing * CGFloat(spacingCount)
             + PetStageView.contentVerticalPadding * 2
+    }
+
+    private func estimatedBubbleHeight(_ session: Session) -> CGFloat {
+        switch session.pendingKind {
+        case .permission: return PetStageView.permissionBubbleHeight
+        case .planApproval: return PetStageView.planApprovalBubbleHeight
+        case .askUser: return PetStageView.askUserBubbleHeight
+        case .legacyQuestion: return PetStageView.legacyQuestionBubbleHeight
+        case .none: return PetStageView.defaultBubbleHeight
+        }
     }
 
     public var body: some View {
         let sessions = self.sessions
         let ids = sessions.map(\.id)
+        let pendingSig = pendingSignature(of: sessions)
         let viewportHeight = bubbleViewportHeight(sessions: sessions)
 
         return VStack(spacing: 0) {
@@ -115,6 +144,9 @@ public struct PetStageView: View {
                     }
                     // 让 1px 描边不被 ScrollView 的 clip 切掉。
                     .padding(.vertical, PetStageView.contentVerticalPadding)
+                    // 当 pending 弹窗把视口临时撑高，而内容本身不足一屏时，
+                    // 保持气泡贴在海豹头顶向上展开，不让内容默认吸到 ScrollView 顶部。
+                    .frame(minHeight: viewportHeight, alignment: .bottom)
                     .background(
                         GeometryReader { inner in
                             Color.clear
@@ -141,20 +173,24 @@ public struct PetStageView: View {
                 .padding(.bottom, sessions.isEmpty ? 0 : PetStageView.bubbleToPetGap)
                 .animation(.spring(response: 0.32, dampingFraction: 0.82), value: ids)
                 .onPreferenceChange(ScrollMetricsKey.self) { metrics in
+                    let previousContentHeight = scrollMetrics.contentHeight
                     scrollMetrics = metrics
+                    guard abs(metrics.contentHeight - previousContentHeight) > 1 else { return }
+                    DispatchQueue.main.async {
+                        scrollToFocus(proxy: proxy, animated: true)
+                    }
                 }
                 .onAppear {
-                    if let oldest = ids.last {
-                        proxy.scrollTo(oldest, anchor: .bottom)
-                    }
+                    scrollToFocus(proxy: proxy, animated: false)
                 }
-                // 维持"最旧气泡贴海豹"的锚定语义：session 变化时重新对齐底部，
-                // 否则 ScrollView cap 后新气泡会把旧的顶到不可见区。
-                .onChange(of: ids) { _, newIds in
-                    guard let oldest = newIds.last else { return }
-                    withAnimation(.easeOut(duration: 0.25)) {
-                        proxy.scrollTo(oldest, anchor: .bottom)
-                    }
+                .onChange(of: ids) { _, _ in
+                    scrollToFocus(proxy: proxy, animated: true)
+                }
+                // 单条 session 在 default ↔ permission / plan-approval / askUser 之间切换时，
+                // ids 不变但卡片高度会从 ~56 跳到 ~395。viewport cap 已能容纳大卡片，
+                // 但 ScrollView 滚动位置不会自动对齐——必须显式 scrollTo 让弹窗完整可见。
+                .onChange(of: pendingSig) { _, _ in
+                    scrollToFocus(proxy: proxy, animated: true)
                 }
             }
 
@@ -168,6 +204,53 @@ public struct PetStageView: View {
         }
         .frame(width: PetWindow.stageSize.width, height: PetWindow.stageSize.height)
         .onReceive(timer) { now = $0 }
+    }
+
+    /// 当前列表中"需要被自动聚焦"的 session id —— 即最先出现 pending 大卡片的那条。
+    /// 多条同时 pending 时按 sessions 数组顺序取首条（最新会话排在数组前端，让用户先看到最新通知）。
+    private func pendingFocusId(in sessions: [Session]) -> String? {
+        sessions.first { $0.pendingKind != nil }?.id
+    }
+
+    /// pending 状态摘要：仅用于 onChange 等价比较。要捕获"哪条 session 进入/离开 pending"
+    /// 以及 pending 类型切换——permission ↔ planApproval ↔ askUser 的展开高度差异显著，
+    /// 必须触发重新对齐，所以摘要里带上 kind.rawValue。
+    private func pendingSignature(of sessions: [Session]) -> [String] {
+        sessions.compactMap { s in
+            s.pendingKind.map { "\(s.id):\($0.rawValue)" }
+        }
+    }
+
+    /// 把 ScrollView 滚动到"当前应聚焦"的气泡位置，让弹窗 / 默认锚定都不被裁切。
+    /// 优先级：pending 大卡片 > oldest 默认锚定。靠边缘的卡片用 .top / .bottom 锚点，
+    /// 否则 SwiftUI 默认的 minimal-scroll 行为会让大卡片露半张。
+    private func scrollToFocus(proxy: ScrollViewProxy, animated: Bool) {
+        let snap = self.sessions
+        guard !snap.isEmpty else { return }
+
+        let targetId: String
+        let anchor: UnitPoint
+        if let pendingId = pendingFocusId(in: snap),
+           let idx = snap.firstIndex(where: { $0.id == pendingId }) {
+            targetId = pendingId
+            if idx == 0 {
+                anchor = .top
+            } else if idx == snap.count - 1 {
+                anchor = .bottom
+            } else {
+                anchor = .center
+            }
+        } else {
+            targetId = snap[snap.count - 1].id
+            anchor = .bottom
+        }
+
+        let scroll = { proxy.scrollTo(targetId, anchor: anchor) }
+        if animated {
+            withAnimation(.easeOut(duration: 0.25)) { scroll() }
+        } else {
+            scroll()
+        }
     }
 
     private func makeBubble(session: Session) -> SessionBubble {

@@ -80,6 +80,16 @@ public struct PendingAskUser: Codable, Sendable, Hashable {
     }
 }
 
+/// 一条 session 当前承载的"等待用户"卡片类型。
+/// 决定气泡高度估算与 scrollToFocus 的等价比较口径——permission 与 planApproval
+/// 单独分项，因为两者展开高度差近 200pt，不能折叠成同一类。
+public enum SessionPendingKind: String, Hashable, Sendable {
+    case permission = "P"
+    case planApproval = "PL"
+    case askUser = "A"
+    case legacyQuestion = "Q"
+}
+
 /// 一个活跃的 AI CLI 会话。
 public struct Session: Codable, Identifiable, Hashable, Sendable {
     public let id: String
@@ -147,6 +157,15 @@ public struct Session: Codable, Identifiable, Hashable, Sendable {
     /// cwd 最后一段路径组件，从 cwd 派生（cwd 改变后随之刷新）。
     public var cwdLastComponent: String {
         URL(fileURLWithPath: cwd).lastPathComponent
+    }
+
+    /// 当前 pending 类型，按 PetStageView 的优先级（permission > askUser > legacyQuestion）展开。
+    /// 顺序与 SessionBubbleView 的卡片选择保持一致。
+    public var pendingKind: SessionPendingKind? {
+        if let pp = pendingPermission { return pp.isPlanApproval ? .planApproval : .permission }
+        if pendingAskUser != nil { return .askUser }
+        if pendingQuestion != nil { return .legacyQuestion }
+        return nil
     }
 
     /// 气泡上展示的标题（最多 40 字符，无标题时回退到 cwd）。

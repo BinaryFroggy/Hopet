@@ -2,6 +2,9 @@ import SwiftUI
 
 /// 宠物主体。主题提供逐帧动画时显示动画，否则回退到文字徽章。
 public struct PetBadgeView: View {
+    /// 渲染框尺寸；PetStageView 的视口高度计算依赖该值，必须保持单一来源。
+    public static let renderedSize: CGFloat = 128
+
     public let tool: AITool
     public let state: PetState
     public let theme: ThemePackage
@@ -16,7 +19,7 @@ public struct PetBadgeView: View {
         Group {
             if let animation = theme.animation(for: state) {
                 FrameAnimationView(animation: animation)
-                    .frame(width: 128, height: 128)
+                    .frame(width: Self.renderedSize, height: Self.renderedSize)
                     .shadow(color: state.accentColor.opacity(0.18), radius: 5, x: 0, y: 3)
             } else {
                 fallbackBadge
@@ -35,7 +38,7 @@ public struct PetBadgeView: View {
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
         }
-        .frame(width: 128, height: 128)
+        .frame(width: Self.renderedSize, height: Self.renderedSize)
         .background(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .fill(.ultraThinMaterial)
