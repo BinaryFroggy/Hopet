@@ -598,10 +598,16 @@ private struct PopParticle: Identifiable {
     var scale: CGFloat
 }
 
-/// 8-bit 像素风外壳：阶梯像素圆角 + 近白底 + 顶部高光 + 块状阴影。所有几何沿 `pixelSize` 方格对齐，
+/// 8-bit 像素风外壳：阶梯像素圆角 + 主体填充 + 顶部高光 + 块状阴影。所有几何沿 `pixelSize` 方格对齐，
 /// 圆角处呈现可见的 2pt 颗粒阶梯——视觉上对齐参考素材的复古 UI 边缘，与小海豹 sprite 同语言。
 /// 描边宽度 / 颜色独立可调：leader session 偏好略粗的黑描边（强调），其余气泡保持基础粗细。
+///
+/// 配色随系统 colorScheme 切换：
+/// - light：近白冷调底 + accent 10% 轻染 + 顶部白高光，搭配系统 .primary 黑字。
+/// - dark：深冷调底 + accent 40% 强染（"夜晚饱和度拉高"），顶高光压暗，搭配 .primary 白字
+///   仍保持 4:1+ 对比度（包括最亮的 askUser 黄）。
 private struct PixelChrome: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
     let cornerRadius: CGFloat
     let accent: Color
     let strokeWidth: CGFloat
@@ -611,6 +617,12 @@ private struct PixelChrome: ViewModifier {
         // pixel pitch：圆角阶梯 / 阴影偏移按这个量化；描边宽度由 caller 单独控制，不必整数倍 pixel。
         let pixel: CGFloat = 2
         let strokeInset = strokeWidth
+        let isDark = colorScheme == .dark
+        let baseFill: Color = isDark
+            ? Color(red: 0.13, green: 0.13, blue: 0.16)
+            : Color(red: 0.97, green: 0.97, blue: 0.99)
+        let accentTint: Double = isDark ? 0.40 : 0.10
+        let topHighlight: Double = isDark ? 0.18 : 0.45
 
         return content
             .padding(strokeInset + 1)  // 让内容不撞到内层亮边
@@ -629,14 +641,13 @@ private struct PixelChrome: ViewModifier {
                             .offset(x: 0, y: pixel * 2)
                         // 2. 描边底（外层 shape 整面填描边色，内层填浅色后只剩 strokeInset 宽的描边）。
                         outer.fill(strokeColor)
-                        // 3. 内层：近白冷调主体 + accent 轻染 + 顶部高光带。padding(strokeInset) 让其向内缩。
+                        // 3. 内层：base 主体 + accent 染色（夜晚比例更高） + 顶部高光带。padding(strokeInset) 让其向内缩。
                         ZStack {
-                            inner.fill(Color(red: 0.97, green: 0.97, blue: 0.99))
-                            // accent 轻染——状态色在卡片上隐隐透出，不抢内容。
-                            inner.fill(accent.opacity(0.10))
+                            inner.fill(baseFill)
+                            inner.fill(accent.opacity(accentTint))
                             // 顶部 4px 像素高光带，强调"自上而来的光源"。
                             inner
-                                .fill(Color.white.opacity(0.45))
+                                .fill(Color.white.opacity(topHighlight))
                                 .mask(
                                     VStack(spacing: 0) {
                                         Rectangle().frame(height: pixel * 2)

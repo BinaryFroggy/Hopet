@@ -190,16 +190,14 @@ public final class EventRouter {
     /// claude-code 子进程换 PID + 换 sid。不清的话用户就会看到"一个会话却有多个气泡"。
     ///
     /// 但 IDE（Cursor）同一项目下也支持多 chat panel 并行，真终端也支持多 tab 并发——不能因为
-    /// 同 cwd / 同宿主就一律清。判据只看"是否还活着"：
-    /// - 状态是终态（idle / completed / errorInterrupted）→ 清，旧会话已经收尾。
-    /// - 状态 running 但 lastActivityAt 远超 stalenessThreshold → 清，认定卡死躺尸。
-    /// - 状态 running 且最近有事件 → 保留，是用户主动并行的合法会话。
+    /// 同 cwd / 同宿主就一律清。判据只看"是否还活着"：lastActivityAt 距今是否超过 stalenessThreshold。
+    /// 状态枚举不能作为判据——`idle` 不是终态，是活会话两轮对话之间的常驻状态（responding →
+    /// completed → idle），刚答完的兄弟 panel 几秒内就会落到 idle。按状态终态判会把合法兄弟会话误杀。
     private static let stalenessThreshold: TimeInterval = 90
     private func pruneStaleSiblings(of new: Session) {
         let now = Date()
         let victims = registry.activeSessions(of: new.tool).filter { other in
             guard other.id != new.id, other.cwd == new.cwd else { return false }
-            if !other.currentState.isRunning { return true }
             return now.timeIntervalSince(other.lastActivityAt) > Self.stalenessThreshold
         }
         for v in victims {
