@@ -251,7 +251,13 @@ public final class EventRouter {
                     s.lastPromptSnippet = String(snippet.prefix(256))
                     // 每次提问都刷新 title：会话标题随当前语境走，而不是冻结在第一次提问。
                     // 否则用户连发几轮提问后，气泡 header 还停留在第一次的开头。
-                    s.title = String(snippet.prefix(32))
+                    // Claude Code 在 IDE 模式下会把 <ide_opened_file>/<ide_selection>/
+                    // <system-reminder> 等上下文块拼到 prompt 开头；直接 prefix(32) 会
+                    // 抓到 "<ide_opened_file>The user opened" 这种标签内容当标题。
+                    // 抽 title 前先剥掉所有领头的成对标签块，让标题落到用户真正写的那句。
+                    let titleSource = Self.stripLeadingContextTags(snippet)
+                    let basis = titleSource.isEmpty ? snippet : titleSource
+                    s.title = String(basis.prefix(32))
                 }
                 // 新一轮开始：清掉上一轮的 assistant 尾声，避免在"思考中"语境里
                 // 还显示几分钟前那段已不相关的回复。
@@ -294,5 +300,29 @@ public final class EventRouter {
         ) {
             registry.transition(sessionId: event.sessionId, to: next, at: event.timestamp)
         }
+    }
+
+    /// 匹配领头的成对 XML 风格上下文块：`<tag ...>...</tag>`，跨行非贪婪。
+    /// Claude Code 在 IDE 下会把 `<ide_opened_file>` / `<ide_selection>` /
+    /// `<system-reminder>` / `<command-name>` 等块塞到 prompt 头部，气泡标题
+    /// 不该把它们当成用户输入。
+    private static let leadingContextTagRegex: NSRegularExpression = {
+        let pattern = "\\A\\s*<([A-Za-z][A-Za-z0-9_-]*)(?:\\s[^>]*)?>[\\s\\S]*?</\\1>\\s*"
+        return try! NSRegularExpression(pattern: pattern)
+    }()
+
+    /// 反复剥掉 prompt 开头的成对上下文标签块，返回用户真正写的那段。
+    /// 全是标签或剥完为空时返回空串，调用方决定要不要回退到原文。
+    static func stripLeadingContextTags(_ raw: String) -> String {
+        var s = raw
+        while true {
+            let range = NSRange(s.startIndex..., in: s)
+            guard let match = leadingContextTagRegex.firstMatch(in: s, range: range),
+                  match.range.location == 0,
+                  let r = Range(match.range, in: s)
+            else { break }
+            s = String(s[r.upperBound...])
+        }
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
