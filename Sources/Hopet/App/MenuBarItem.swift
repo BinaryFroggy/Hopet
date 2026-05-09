@@ -18,8 +18,6 @@ public final class MenuBarItem {
         menu.addItem(makeItem(title: "Open Preferences…", action: #selector(openPrefs), key: ","))
         menu.addItem(makeItem(title: "Toggle Pet Visibility", action: #selector(togglePets), key: "h"))
         menu.addItem(.separator())
-        menu.addItem(makeItem(title: "Install Claude Hooks", action: #selector(installClaudeHooks), key: ""))
-        menu.addItem(.separator())
         menu.addItem(makeItem(title: "Quit Hopet", action: #selector(quit), key: "q"))
         item.menu = menu
     }
@@ -32,6 +30,5 @@ public final class MenuBarItem {
 
     @objc private func openPrefs() { router.openPreferences() }
     @objc private func togglePets() { router.toggleAllPets() }
-    @objc private func installClaudeHooks() { _ = try? router.hookInstaller.install(.claudeCode) }
     @objc private func quit() { NSApp.terminate(nil) }
 }
