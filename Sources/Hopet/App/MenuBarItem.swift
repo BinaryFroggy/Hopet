@@ -10,7 +10,12 @@ public final class MenuBarItem {
         self.item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let button = item.button {
-            button.title = "🦭"
+            if let icon = MenuBarItem.loadStatusBarIcon() {
+                button.image = icon
+                button.title = ""
+            } else {
+                button.title = "🦭"
+            }
             button.toolTip = "Hopet"
         }
 
@@ -31,4 +36,13 @@ public final class MenuBarItem {
     @objc private func openPrefs() { router.openPreferences() }
     @objc private func togglePets() { router.toggleAllPets() }
     @objc private func quit() { NSApp.terminate(nil) }
+
+    private static func loadStatusBarIcon() -> NSImage? {
+        guard let url = Bundle.module.url(forResource: "StatusBarIcon", withExtension: "png"),
+              let image = NSImage(contentsOf: url)
+        else { return nil }
+        image.size = NSSize(width: 18, height: 18)
+        image.isTemplate = true
+        return image
+    }
 }

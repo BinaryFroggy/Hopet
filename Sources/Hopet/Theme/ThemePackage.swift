@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 
 /// v0.1 简化主题包：默认用 glyph 占位，已就绪的状态可挂载逐帧动画。
+/// `isUserProvided` 区分内置与 ~/.hopet/themes 来源；后者可在 ThemesTab 删除。
 public struct ThemePackage: Identifiable, Hashable, Sendable {
     public let id: String
     public let name: String
@@ -11,6 +12,8 @@ public struct ThemePackage: Identifiable, Hashable, Sendable {
     public let glyphs: [PetState: String]
     public let animations: [PetState: FrameAnimation]
     public let accentOverrides: [PetState: ColorToken]
+    public let isUserProvided: Bool
+    public let sourceDirectory: URL?
 
     public init(
         id: String,
@@ -20,7 +23,9 @@ public struct ThemePackage: Identifiable, Hashable, Sendable {
         description: String?,
         glyphs: [PetState: String],
         animations: [PetState: FrameAnimation] = [:],
-        accentOverrides: [PetState: ColorToken] = [:]
+        accentOverrides: [PetState: ColorToken] = [:],
+        isUserProvided: Bool = false,
+        sourceDirectory: URL? = nil
     ) {
         self.id = id
         self.name = name
@@ -30,6 +35,8 @@ public struct ThemePackage: Identifiable, Hashable, Sendable {
         self.glyphs = glyphs
         self.animations = animations
         self.accentOverrides = accentOverrides
+        self.isUserProvided = isUserProvided
+        self.sourceDirectory = sourceDirectory
     }
 
     public func glyph(for state: PetState) -> String {
@@ -41,15 +48,11 @@ public struct ThemePackage: Identifiable, Hashable, Sendable {
     }
 }
 
-/// 逐帧 PNG 动画：指向 bundle 内一个目录，里面所有 PNG 按文件名排序作为帧序列。
-public struct FrameAnimation: Hashable, Sendable {
-    public let resourceDirectory: String
-    public let framesPerSecond: Double
-
-    public init(resourceDirectory: String, framesPerSecond: Double) {
-        self.resourceDirectory = resourceDirectory
-        self.framesPerSecond = framesPerSecond
-    }
+/// 逐帧动画来源：内置主题用 PNG 帧目录（Bundle.module），用户主题用单个 GIF 文件。
+/// See preferences.md §4.1.
+public enum FrameAnimation: Hashable, Sendable {
+    case bundlePNG(directory: String, framesPerSecond: Double)
+    case gifFile(url: URL)
 }
 
 /// 抽象的 RGB token，避免主题层直接依赖 SwiftUI.Color。

@@ -1,72 +1,97 @@
 import SwiftUI
 
+/// 概览：每个 AI 一张像素 PetCard 显示当前聚合状态 + 活跃 session 数；下方是会话列表。
+/// See preferences.md §11.6.
 struct OverviewTab: View {
     @ObservedObject var registry: SessionRegistry
     let controller: PetWindowController
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Pets").font(.headline)
-            HStack(spacing: 16) {
+        PreferencesPaneScaffold("Overview") {
+            HStack(spacing: 12) {
                 ForEach(SessionRegistry.activeTools, id: \.self) { tool in
-                    PetCard(
+                    PixelPetCard(
                         tool: tool,
                         pet: registry.pets[tool] ?? PetInstance(tool: tool),
                         sessionCount: registry.activeSessions(of: tool).count,
                         onLocate: { controller.locate(tool) }
                     )
                 }
+                Spacer(minLength: 0)
             }
-            Divider()
-            Text("Sessions (\(registry.sessions.count))").font(.headline)
-            ScrollView {
+
+            PixelCard("SESSIONS", titleTint: PixelPalette.lemon) {
                 VStack(alignment: .leading, spacing: 6) {
-                    ForEach(registry.sessions.values.sorted(by: { $0.startedAt < $1.startedAt }), id: \.id) { s in
-                        HStack {
-                            Circle().fill(s.currentState.accentColor).frame(width: 8, height: 8)
-                            Text(s.tool.displayName).font(.system(size: 11, weight: .semibold))
-                            Text(s.displayTitle).font(.system(size: 11)).foregroundStyle(.secondary)
-                            Spacer()
-                            Text(s.currentState.badgeText).font(.system(size: 11)).foregroundStyle(s.currentState.accentColor)
-                            Text(s.elapsedDescription()).font(.system(size: 11, design: .monospaced))
-                            Button("×") { registry.remove(s.id) }.buttonStyle(.plain)
-                        }
-                        .padding(.vertical, 2)
-                    }
+                    Text("\(registry.sessions.count) active")
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+
                     if registry.sessions.isEmpty {
-                        Text("还没有活跃 session。安装 Hooks 后启动 Claude Code 即可看到。")
-                            .font(.system(size: 11))
+                        Text("No active sessions yet. Trigger a Claude Code or Codex run to see one here.")
+                            .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(.secondary)
-                            .padding(.vertical, 8)
+                            .padding(.vertical, 4)
+                    } else {
+                        ForEach(
+                            registry.sessions.values.sorted(by: { $0.startedAt < $1.startedAt }),
+                            id: \.id
+                        ) { session in
+                            SessionRow(session: session) {
+                                registry.remove(session.id)
+                            }
+                        }
                     }
                 }
             }
-            Spacer()
         }
-        .padding(8)
     }
 }
 
-private struct PetCard: View {
+private struct PixelPetCard: View {
     let tool: AITool
     let pet: PetInstance
     let sessionCount: Int
     let onLocate: () -> Void
 
     var body: some View {
-        VStack(spacing: 8) {
-            Text(pet.aggregatedState.badgeText)
-                .font(.system(size: 24))
-            Text(tool.displayName).font(.headline)
-            Text("\(sessionCount) session(s)")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-            Button("Locate") { onLocate() }
-                .buttonStyle(.bordered)
+        PixelCard(tool.displayName.uppercased(), accent: pet.aggregatedState.accentColor, titleTint: PixelPalette.sky) {
+            VStack(spacing: 6) {
+                Text(pet.aggregatedState.glyph)
+                    .font(.system(size: 26))
+                Text("\(sessionCount) session(s)")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                Button("Locate", action: onLocate)
+                    .buttonStyle(PixelButtonStyle(tint: .accentColor, prominent: false))
+            }
+            .frame(width: 140, height: 120)
         }
-        .padding(12)
-        .frame(width: 160, height: 140)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.gray.opacity(0.08)))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(pet.aggregatedState.accentColor, lineWidth: 1.5))
+    }
+}
+
+private struct SessionRow: View {
+    let session: Session
+    let onRemove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle().fill(session.currentState.accentColor).frame(width: 8, height: 8)
+            Text(session.tool.displayName)
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            Text(session.displayTitle)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer()
+            Text(session.currentState.badgeLabel)
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(session.currentState.accentColor)
+            Text(session.elapsedDescription())
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+            Button("×", action: onRemove)
+                .buttonStyle(PixelButtonStyle(tint: .gray, prominent: false))
+        }
+        .padding(.vertical, 2)
     }
 }

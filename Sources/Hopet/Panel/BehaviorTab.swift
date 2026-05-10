@@ -1,5 +1,7 @@
 import SwiftUI
 
+/// 行为偏好：开机自启、刘海条、终端、日志级别。所有控件用像素风部件，全 monospaced。
+/// See preferences.md §11.6.
 struct BehaviorTab: View {
     @AppStorage("general.launchAtLogin")        private var launchAtLogin: Bool = false
     @AppStorage("notch.enabled")                private var notchEnabled: Bool = true
@@ -10,28 +12,64 @@ struct BehaviorTab: View {
     @AppStorage("advanced.logLevel")            private var logLevel: String = "info"
 
     var body: some View {
-        Form {
-            Section("General") {
-                Toggle("开机自启", isOn: $launchAtLogin)
-                Toggle("拖拽松手吸附屏幕边缘", isOn: $snapToEdge)
-                Toggle("保留 prompt 256 字符摘要", isOn: $recordPromptSummary)
-            }
-            Section("Notch") {
-                Toggle("启用刘海条", isOn: $notchEnabled)
-                Toggle("无刘海机型显示降级顶条", isOn: $notchFallback)
-            }
-            Section("Terminal") {
-                Picker("首选终端", selection: $preferredTerminal) {
-                    Text("Terminal.app").tag("Terminal.app")
-                    Text("iTerm2").tag("iTerm2")
-                }
-            }
-            Section("Diagnostics") {
-                Picker("日志级别", selection: $logLevel) {
-                    ForEach(["error", "warn", "info", "debug"], id: \.self) { Text($0).tag($0) }
-                }
+        PreferencesPaneScaffold("Behavior") {
+            sectionGeneral
+            sectionNotch
+            sectionTerminal
+            sectionDiagnostics
+        }
+    }
+
+    private var sectionGeneral: some View {
+        PixelCard("GENERAL", titleTint: PixelPalette.sky) {
+            VStack(alignment: .leading, spacing: 10) {
+                PixelToggleRow(label: "Launch at login", isOn: $launchAtLogin)
+                PixelToggleRow(label: "Snap to screen edge on release", isOn: $snapToEdge)
+                PixelToggleRow(label: "Keep 256-char prompt summary", isOn: $recordPromptSummary)
             }
         }
-        .formStyle(.grouped)
+    }
+
+    private var sectionNotch: some View {
+        PixelCard("NOTCH", titleTint: PixelPalette.candyPink) {
+            VStack(alignment: .leading, spacing: 10) {
+                PixelToggleRow(label: "Enable notch indicator", isOn: $notchEnabled)
+                PixelToggleRow(label: "Fallback top bar on non-notch displays", isOn: $notchFallback)
+            }
+        }
+    }
+
+    private var sectionTerminal: some View {
+        PixelCard("TERMINAL", titleTint: PixelPalette.mint) {
+            VStack(alignment: .leading, spacing: 10) {
+                PixelSegmentedControl(
+                    selection: $preferredTerminal,
+                    options: [
+                        ("Terminal.app", "Terminal"),
+                        ("iTerm2",       "iTerm2"),
+                    ]
+                )
+            }
+        }
+    }
+
+    private var sectionDiagnostics: some View {
+        PixelCard("DIAGNOSTICS", titleTint: PixelPalette.lemon) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Log level")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                PixelSegmentedControl(
+                    selection: $logLevel,
+                    options: [
+                        ("error", "Error"),
+                        ("warn",  "Warn"),
+                        ("info",  "Info"),
+                        ("debug", "Debug"),
+                    ]
+                )
+            }
+        }
     }
 }
+

@@ -31,14 +31,19 @@
 ## §2 入口与窗口
 
 - 菜单栏入口：保持 `MenuBarItem.swift` 现有的 "Open Preferences…" 菜单项，**不新增菜单项**。
-- 窗口：沿用 `PreferencesWindowController` 单例（NSWindow + SwiftUI HostingController）。
-- TabView 顺序变更：在 **Themes** 与 **Bindings** 之间插入新 **Appearance** Tab。其余 6 个 Tab 顺序不变。
+- 窗口：沿用 `PreferencesWindowController` 单例（NSWindow + SwiftUI HostingController）。窗口配置：
+  - `styleMask` 含 `.fullSizeContentView`、`titlebarAppearsTransparent = true`、`titleVisibility = .hidden`。
+  - 让像素背景从顶端铺到底端；红黄绿按钮浮在像素底色上保留系统外观（§11.2.3）。
+- 顶部 Tab 栏由自绘 `PixelTabBar` 渲染（§11.2.2），**不再使用 SwiftUI `TabView`**——避免系统分段抢戏破坏整体像素感。
+- Tab 顺序：在 **Themes** 与 **Bindings** 之间插入新 **Appearance** Tab。其余 6 个 Tab 顺序不变。
 
 最终 Tab 顺序：
 
 ```
-Overview · Themes · Appearance · Bindings · Hooks · Behavior · Notifications · About
+Overview · Themes · Appearance · Bindings · Hooks · Behavior · Notifs · About
 ```
+
+> 标签 `Notifs` 是 `Notifications` 的紧凑显示，让 8 个 Tab 在 760pt 最小宽度横排不挤压。
 
 监听设置仍归 **Hooks** Tab，不另起新 Tab——避免与现有 HookDoctor / 安装流程割裂。
 
@@ -403,7 +408,7 @@ struct FrameAnimationView: View {
 
 1. **像素 pitch = 2pt**：所有阶梯几何（圆角、阴影偏移、高光带高度）以 2pt 为最小单位对齐。低于 2pt 的像素感会在 Retina 下被抗锯齿吞掉。
 2. **硬黑描边**：所有边缘用纯黑（亮模式 `Color.black.opacity(0.85)`，暗模式同值）描线，宽度 1.5pt 起步。**绝不**使用系统默认的半透明灰描边。
-3. **块状阴影**：投影是硬偏移、零模糊的纯色矩形（不是 `.shadow(radius:)`）。偏移量恒为 `pixel * 2 = 4pt`，方向自上而下。
+3. **块状阴影**：投影是硬偏移、零模糊的纯色矩形（不是 `.shadow(radius:)`）。卡片外壳与按钮使用同源的块状下沿，按钮按下时整体下移 2pt。
 4. **顶部高光带**：内层最顶端 4px 为白色不透明带（亮模式 0.45 / 暗模式 0.18），强化"自上方光源"的复古 UI 错觉。
 5. **明暗双套**：light 用近白冷调底（RGB 0.97/0.97/0.99）+ accent 10% 染色；dark 用近黑冷调底（RGB 0.13/0.13/0.16）+ accent 40% 染色。亮 / 暗各自保 4:1+ 文字对比度。
 6. **字体**：以系统等宽（`.system(_, design: .monospaced)`）为主，权重 bold / semibold；标题与按钮文字必须等宽。说明性长文允许用默认 SF Pro。**不引入第三方位图字体**——`Package.swift` 的依赖白名单仍为空（AGENTS.md §3）。
@@ -432,24 +437,26 @@ struct FrameAnimationView: View {
 
 | 部件 | 类型 | 用途 |
 |---|---|---|
-| `PixelCard` | `View` | `PixelChrome` 的便捷外壳：卡片背景 + 默认 padding（12pt）。ThemesTab 列表项、Hooks Toggle 行、Appearance Picker 容器都用它。 |
-| `PixelToggle` | `View` | 像素方块开关，替代 SwiftUI `Toggle`。两态视觉：未开 = 灰底空心方框 + 黑描边；开 = accent 染色实心方框 + 顶部白高光 + 块状投影。Hooks Tab 用。 |
-| `PixelSegmentedControl<Value: Hashable>` | `View` | 像素分段，替代 SwiftUI `Picker(.segmented)`。AppearanceTab（明亮 / 深色 / 跟随系统）用。每段是一个 `PixelButtonStyle.secondary`，选中段切到 `prominent` 风格。 |
+| `PixelGridBackground` | `View` | Preferences 根背景：淡蓝底、底部粉色色带、24pt 白色网格线，贴近参考图的窗口纸背景。 |
+| `PixelCard` | `View` | `PixelChrome` 的便捷外壳：卡片背景 + 默认 padding（12pt），可带轻量 section caption。所有 Tab 内容一律包它。 |
+| `PixelToggle` | `View` | 像素方块开关，替代 SwiftUI `Toggle`。两态视觉：未开 = 灰底空心方框 + 黑描边；开 = accent 染色实心方框 + 黑描边。`Hooks` / `Behavior` / `Notifs` Tab 用。 |
+| `PixelSegmentedControl<Value: Hashable>` | `View` | 像素分段，替代 SwiftUI `Picker(.segmented)`。AppearanceTab、BehaviorTab（首选终端 / 日志级别）用。每段是一个 `PixelButtonStyle.secondary`，选中段切到 `prominent` 风格。 |
+| `PixelTabBar` + `PixelTabButtonStyle` | `View` + `ButtonStyle` | 自绘顶部 Tab 栏，替代 SwiftUI `TabView` 的系统分段。所有 Tab 横排，选中态切 prominent。`PixelTabButtonStyle` 是 `PixelButtonStyle` 的紧凑变体（padding 10/5、字号 11pt），让 8 个 Tab 在 760pt 最小宽度横排不挤压。 |
 | `PixelDropSlot` | `View` | 文件拖拽 / 选择槽，替代默认的虚线框。空槽 = 阶梯虚线边框 + 中央 monospaced 文案；填充后 = 缩略首帧 + 文件名 + 状态色圆点。导入 sheet（§5.3）用 8 个。 |
-| `PixelTextField` | `View` | 像素输入框，包裹系统 `TextField` + `PixelChrome` 背景 + 关闭系统 focus ring，自绘 1.5pt 黑描边在 focus 态加亮高光带。导入 sheet 的主题名输入用。 |
 | `PixelScrollThumb` | `View` | 像素滚动条拇指。已经在 `feat(pet): scroll bubble list with pixel scroll thumb` 提交里为气泡列表实现过；本次同步提升到 `Theme/PixelChrome.swift`，Preferences 长列表（ThemesTab 多主题）复用。 |
 
-> 命名约定：所有部件统一以 `Pixel` 前缀；放在 `Sources/Hopet/Theme/PixelChrome.swift` 单文件，超过 400 行时再按部件拆分。
+> 命名约定：所有部件统一以 `Pixel` 前缀；底层形状 / 调色板放在 `Sources/Hopet/Theme/PixelChrome.swift`，组合控件放在 `Sources/Hopet/Theme/PixelControls.swift`。
 
 #### §11.2.3 不像素化的部件
 
 为避免破坏键盘 / VoiceOver / 双击编辑等系统级行为，以下部件 **保留系统外观**：
 
-- macOS 原生 `TabView` 顶部分段：保持系统外观，仅对每个 Tab 的内容容器像素化。`TabView` 顶部条与窗口标题栏视觉上算"系统 chrome"，强行像素化会割裂 macOS 习惯（cmd+W、Tab 切换、tooltip 等）。
-- 窗口标题栏 / 红黄绿按钮：完全保留系统外观。
+- 窗口红黄绿按钮：保留系统外观。仅把 titlebar 设为透明（`titlebarAppearsTransparent = true`、`titleVisibility = .hidden`），让像素背景从顶端铺到底端，按钮浮在像素底色上。
 - `NSAlert` 二次确认（删除主题）：保留系统对话框，不自绘。
 - 文件选择 `NSOpenPanel`：系统对话框。
-- 上下文菜单 / 右键菜单：系统外观。
+- 上下文菜单 / 右键菜单 / `Picker(.menu)` 的下拉弹层：弹出内容保留系统外观（`BindingsTab` 选全局主题用 `Picker(.menu)`，触发器嵌在 `PixelCard` 里）。
+
+> **历史决策修订**：早期版本（§11.2.3 v0）把 macOS 原生 `TabView` 顶部分段也列入"不像素化"清单。实施后用户反馈系统分段在像素背景里"破功"，因此把 `TabView` 替换为自绘 `PixelTabBar`（§11.2.2），仅保留窗口红黄绿按钮等真正"不可像素化"的 OS chrome。
 
 这一边界写入 §11.7 检查清单，避免实施期混乱。
 
@@ -459,12 +466,27 @@ struct FrameAnimationView: View {
 
 ```swift
 enum PixelPalette {
+    // 参考图同源的像素主色：蓝描边 + 粉 / 黄 / 青 / 绿点缀。
+    static let chromeBlue = Color(red: 0.04, green: 0.42, blue: 0.86)
+    static let candyPink = Color(red: 0.98, green: 0.50, blue: 0.78)
+    static let lemon = Color(red: 0.99, green: 0.93, blue: 0.38)
+    static let mint = Color(red: 0.66, green: 0.92, blue: 0.48)
+    static let sky = Color(red: 0.56, green: 0.92, blue: 0.98)
+    static let cream = Color(red: 1.00, green: 1.00, blue: 0.94)
+
     // 底色（baseFill）
     static func base(_ scheme: ColorScheme) -> Color {
         scheme == .dark
             ? Color(red: 0.13, green: 0.13, blue: 0.16)
             : Color(red: 0.97, green: 0.97, blue: 0.99)
     }
+
+    // Preferences 面板淡蓝 / 粉色像素网格背景
+    static func panelBase(_ scheme: ColorScheme) -> Color { ... }
+    static func panelLowerBand(_ scheme: ColorScheme) -> Color { ... }
+    static func gridLine(_ scheme: ColorScheme) -> Color { ... }
+    static func ink(_ scheme: ColorScheme) -> Color { ... }
+    static func mutedInk(_ scheme: ColorScheme) -> Color { ... }
 
     // accent 染色比例
     static func accentTint(_ scheme: ColorScheme) -> Double {
@@ -487,19 +509,19 @@ enum PixelPalette {
 }
 ```
 
-数值取自现行 `PixelChrome` 实现，**不引入新色值**，保证提升前后零回归。Tab 内 accent 色仍按各自语义（Themes 用主题色 / Appearance 用 `.accentColor` / Hooks 用工具色）传入 `PixelChrome(accent:)`。
+`base` / `accentTint` / `topHighlight` / `stroke` / `shadow` 仍取自现行 `PixelChrome` 实现，保证宠物气泡提升后零回归。`chromeBlue` / `candyPink` / `lemon` / `mint` / `sky` / `cream` 专用于 Preferences 面板，匹配参考图的复古粉蓝窗口语言，不进入 IPC / 主题包数据模型。
 
-外观切换（§6.4）的实现路径：`@Environment(\.colorScheme)` 改变 → `PixelPalette.base(scheme)` 等返回不同值 → 所有使用部件的视图自动重绘。无需中央广播。
+外观切换（§6.4）的实现路径：`@Environment(\.colorScheme)` 改变 → `PixelPalette.base(scheme)` / `panelBase(scheme)` 等返回不同值 → 所有使用部件的视图自动重绘。无需中央广播。
 
 ### §11.4 字体与排版规则
 
 | 用途 | 字体 | 备注 |
 |---|---|---|
-| 标题（Tab 内 H1，如 "Installed Themes"） | `.system(size: 14, weight: .bold, design: .monospaced)` | 替代现行 `.headline`，强化像素感 |
+| 标题（Tab 内 H1，如 "Installed Themes"） | `.system(size: 14, weight: .bold, design: .monospaced)` | 用 `PixelPalette.ink(scheme)`，深色模式为白色 |
 | 卡片次标题（主题名） | `.system(size: 13, weight: .semibold, design: .monospaced)` | 与气泡 leader 主标题一致 |
 | 元数据（id / 版本号 / 描述） | `.system(size: 11, design: .monospaced)`，`foregroundStyle(.secondary)` | 沿用 `ThemesTab.swift` 现状 |
 | 长说明文本（Hooks Doctor 输出 / 错误 / 提示） | `.system(size: 11, design: .monospaced)` | 等宽显示路径 / 错误堆栈 |
-| 按钮文字 | `PixelButtonStyle` 内置 `.system(size: 12, weight: .bold, design: .monospaced)` | 不可覆盖 |
+| 按钮文字 | `PixelButtonStyle` 内置 `.system(size: 12, weight: .bold, design: .monospaced)` | 非 prominent 用 `PixelPalette.ink(scheme)`，深色模式为白色；沿用权限气泡按钮样式 |
 | Picker / Toggle 标签 | `.system(size: 12, weight: .semibold, design: .monospaced)` | |
 
 **禁止**：
@@ -525,24 +547,31 @@ PreferencesPaneScaffold(title: "Installed Themes") {
 - 顶部 14pt monospaced bold 标题。
 - 内容区 12pt padding，宽度撑满。
 - 长内容自动包裹 `ScrollView` + `PixelScrollThumb`。
-- 暗 / 亮模式下底色用 `PixelPalette.base(scheme)`，与 `TabView` 容器层叠不冲突。
+- 根窗口底色由 `PixelGridBackground` 绘制淡蓝 / 粉色网格；Scaffold 自身保持透明，避免卡片之外的区域变回系统设置风格。
 
-每个 Tab 内的卡片 / 列表项一律包 `PixelCard`，禁止裸 `RoundedRectangle.fill(Color.gray.opacity(0.05))` 这种现存写法（`ThemesTab.swift:34` 当前实现需重写）。
+每个 Tab 内的卡片 / 列表项一律包 `PixelCard`。`PixelCard` 的标题只是轻量 section caption（小色块 + 等宽文字），禁止给子卡片加仿窗口标题栏、关闭按钮或三枚控制点；参考图只借粉蓝像素质感，不复刻窗口 chrome。Preferences 顶部不再固定渲染 "HOPET PREFS" header，窗口内第一层固定导航只保留 `PixelTabBar`。禁止裸 `RoundedRectangle.fill(Color.gray.opacity(0.05))` 这种现存写法。
 
 ### §11.6 各 Tab 像素化映射
 
+所有 Tab 一律以 `PreferencesPaneScaffold("<Title>") { ... }` 开头，内容区一律由若干 `PixelCard` 拼合，按钮一律 `PixelButtonStyle`，开关一律 `PixelToggle`，分段一律 `PixelSegmentedControl`，字体一律 monospaced（按 §11.4 表）。
+
 | Tab | 主要部件 | 备注 |
 |---|---|---|
-| ThemesTab | `PixelCard` ×N（每主题一张） + `PixelButtonStyle` 的 Apply / Delete + 顶部 `PixelButtonStyle.prominent` 的 "Import Theme…" | 主题预览首帧用 `FrameAnimationView` 渲染并叠 `PixelChrome` 边框，关闭抗锯齿 |
-| AppearanceTab | `PixelSegmentedControl` 三选一 | 选项文字 "Light / Dark / System"；下方一行 monospaced 11pt 解释当前生效 |
-| HooksTab | `PixelCard` ×N（每工具一张），每张含工具名 + `PixelToggle` + 状态文字（Installed / Not installed）；底部 "Run Hook Doctor" `PixelButtonStyle.secondary` + 输出区用 `PixelCard` 包裹的 monospaced ScrollView | 输出区背景 `PixelPalette.base(scheme)` 而非现状的 `Color.black.opacity(0.05)` |
-| 导入 sheet | 顶部 `PixelTextField`（主题名）+ 8 个 `PixelDropSlot` 网格（2 列 × 4 行）+ 底部 Cancel / Import 按钮 | 缺帧提示用红色（`PetState.errorInterrupted.accentColor` 等价值）的 monospaced 11pt 文字 |
+| OverviewTab | 顶部一排像素 `PixelPetCard`（每个 AI 一张：状态 glyph + 工具名 + 活跃 session 数 + Locate 按钮）+ 下方 `PixelCard` 包裹的 session 列表 | session 列表每行：状态色圆点 + 工具名 + 标题 + badgeLabel + 用时 + `×` 删除按钮（`PixelButtonStyle.gray`） |
+| ThemesTab | `PixelButtonStyle.prominent` 的 "Import Theme…" + `PixelCard` ×N（每主题一张：56×56 预览首帧 + 名称 + 描述 + Apply / Delete 按钮） | 主题预览首帧用 `FrameAnimationView` 渲染并叠 `PixelChrome` 边框，关闭抗锯齿；用户主题显示 `[user]` 角标 |
+| AppearanceTab | `PixelCard` 包裹 `PixelSegmentedControl` 三选一 | 选项文字 "Light / Dark / System"；下方一行 monospaced 11pt 解释当前生效 |
+| BindingsTab | 两个 `PixelCard`：①全局主题 `Picker(.menu)`；②每个 AI 的当前绑定列表 | Picker 弹层保留系统外观（§11.2.3） |
+| HooksTab | `PixelCard` ×N（每工具一张：工具名 + Installed/Not installed + `PixelToggle`）；底部 `PixelCard` 包裹 Doctor "Run" 按钮 + monospaced ScrollView | Codex 行附占位说明，勾选只写 config（§1.2 非目标） |
+| BehaviorTab | 4 个 `PixelCard`（General / Notch / Terminal / Diagnostics）：前两块全 `PixelToggle`，后两块 `PixelSegmentedControl` | `preferredTerminal` 2 选、`logLevel` 4 选 |
+| NotificationsTab | 2 个 `PixelCard`（Banners 全 `PixelToggle` / Sound 占位说明） | |
+| AboutTab | 居中 `PixelCard`：项目标题 + 版本 + 一句话描述 + feedback Link | |
+| 导入 sheet | 顶部 `PixelCard`（主题名 TextField）+ 8 个 `PixelDropSlot` 网格（2 列 × 4 行）+ 底部 Cancel / Import 按钮 | 缺帧提示用红色（`PetState.errorInterrupted.accentColor` 等价值）的 monospaced 11pt 文字 |
 
 ### §11.7 像素化检查清单（实施期 / Review 期共用）
 
 提交前对每个修改 / 新增的视图打勾：
 
-- [ ] 所有圆角矩形用 `PixelRoundedRectangle` 或 `PixelChrome`，**没有**裸 `RoundedRectangle`。
+- [ ] 除 `PixelButtonStyle` / `PixelTabButtonStyle` 为保留权限气泡按钮视觉而使用 `RoundedRectangle` 外，其余圆角矩形用 `PixelRoundedRectangle` 或 `PixelChrome`。
 - [ ] 所有按钮 `.buttonStyle(PixelButtonStyle(...))`，**没有**默认 / `.borderedProminent` / `.bordered`。
 - [ ] 所有边框是硬黑（`PixelPalette.stroke`），**没有** `.opacity(< 0.85)` 的描边。
 - [ ] 所有阴影是块状（`offset` + `fill`），**没有** `.shadow(radius:)`。
@@ -558,7 +587,7 @@ PreferencesPaneScaffold(title: "Installed Themes") {
 - **风险 1**：提升 `PixelChrome` 后宠物气泡出现像素级回归。
   - 缓解：阶段 A' 单独提交、独立 PR，提交前后各截图一份气泡（idle / askUser / permissionPrompt 三状态），diff 通过才合并。
 - **风险 2**：自定义部件（如 `PixelToggle`）键盘可达性 / VoiceOver 表现退化。
-  - 缓解：所有自绘部件包裹真实的系统控件作为可达性载体（`Toggle` 隐藏于自绘背景下，accessibility 属性透传），而非纯绘制。
+  - 缓解：所有自绘开关都显式设置 toggle accessibility traits / value，并保留按钮可点击区域；不要只画静态图形。
 - **风险 3**：暗模式下文字对比度不足。
   - 缓解：每个新部件验收时用 macOS 辅助功能 → 颜色滤镜 → 增加对比度 / 反转，肉眼检查不糊。
 - **回滚**：§11 是面板独立子系统的视觉规范，与数据 / hook 协议无耦合；如风格需整体回退，仅需还原 `Theme/PixelChrome.swift` 的提升 + 把面板 Tab 切回原 SwiftUI 默认控件。Theme / Hook / Config 数据层不受影响。

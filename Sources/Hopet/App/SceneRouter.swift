@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 /// 协调 App 内的所有子系统：socket 服务端、定时器、宠物窗口、刘海条、面板。
 @MainActor
@@ -7,6 +8,7 @@ public final class SceneRouter {
     public let themes: ThemeStore
     public let inputCoordinator: InputCoordinator
     public let hookInstaller: HookInstaller
+    public let configStore: ConfigStore
 
     private let aggregator: PetAggregator
     private let thinkingTimer: ThinkingTimer
@@ -14,6 +16,7 @@ public final class SceneRouter {
     private let permissionPrompter: PermissionPrompter
     private var router: EventRouter
     private var server: SocketServer?
+    private var configCancellables: Set<AnyCancellable> = []
 
     public let petWindowController: PetWindowController
     public let notchController: NotchWindowController
@@ -21,11 +24,13 @@ public final class SceneRouter {
 
     public init() {
         let registry = SessionRegistry()
-        let themes = ThemeStore()
+        let configStore = ConfigStore()
+        let themes = ThemeStore(configStore: configStore)
         let prompter = PermissionPrompter(registry: registry)
         let coordinator = InputCoordinator(registry: registry, permissionPrompter: prompter)
         let installer = HookInstaller()
         self.registry = registry
+        self.configStore = configStore
         self.themes = themes
         self.inputCoordinator = coordinator
         self.hookInstaller = installer
@@ -46,6 +51,7 @@ public final class SceneRouter {
             registry: registry,
             themes: themes,
             hookInstaller: installer,
+            configStore: configStore,
             petWindowController: petWindowController
         )
     }
@@ -55,13 +61,26 @@ public final class SceneRouter {
             try HopetPaths.ensureDirectories()
             try? hookInstaller.ensureEmitBinary()
 
-            // 启动即自动安装 / 升级 Claude hooks（幂等，已存在的会被覆盖最新版本）。
-            do {
-                try hookInstaller.install(.claudeCode)
-                HopetLog.trace("claude hooks installed/refreshed.")
-            } catch {
-                HopetLog.trace("claude hooks install failed: \(error)")
+            // 首次安装：落盘默认 config 建立基线（见 preferences.md §6.1）。
+            if !FileManager.default.fileExists(atPath: HopetPaths.configFile.path) {
+                configStore.current.save()
             }
+
+            applyAppearance(configStore.current.appearance)
+            applyListeners(configStore.current.listeners)
+            themes.reload()
+
+            // 监听 config 变化：appearance 即时应用，listeners 在 Toggle 翻转时同步装/卸 hooks。
+            configStore.$current
+                .map(\.appearance)
+                .removeDuplicates()
+                .sink { [weak self] in self?.applyAppearance($0) }
+                .store(in: &configCancellables)
+            configStore.$current
+                .map(\.listeners)
+                .removeDuplicates()
+                .sink { [weak self] in self?.applyListeners($0) }
+                .store(in: &configCancellables)
 
             let router = self.router
             let server = SocketServer { data, channel in
@@ -92,4 +111,37 @@ public final class SceneRouter {
 
     public func openPreferences() { preferencesController.show() }
     public func toggleAllPets()   { petWindowController.toggleAll() }
+
+    /// 把外观偏好映射到 `NSApp.appearance`：light → .aqua / dark → .darkAqua / system → nil。
+    /// See preferences.md §6.4.
+    private func applyAppearance(_ appearance: HopetConfig.Appearance) {
+        switch appearance {
+        case .light:  NSApp.appearance = NSAppearance(named: .aqua)
+        case .dark:   NSApp.appearance = NSAppearance(named: .darkAqua)
+        case .system: NSApp.appearance = nil
+        }
+    }
+
+    /// 仅当 listener 当前安装态与目标不一致时调用 install/uninstall，避免每次启动重写文件。
+    /// Codex 路径失败仅 warn，不影响 Claude 安装与启动（见 preferences.md §6.1）。
+    private func applyListeners(_ listeners: HopetConfig.Listeners) {
+        sync(.claudeCode, desired: listeners.claudeCode)
+        sync(.codex, desired: listeners.codex)
+    }
+
+    private func sync(_ tool: AITool, desired: Bool) {
+        let installed = hookInstaller.isInstalled(tool)
+        guard installed != desired else { return }
+        do {
+            if desired {
+                try hookInstaller.install(tool)
+                HopetLog.trace("\(tool.displayName) hooks installed.")
+            } else {
+                try hookInstaller.uninstall(tool)
+                HopetLog.trace("\(tool.displayName) hooks uninstalled.")
+            }
+        } catch {
+            HopetLog.warn("\(tool.displayName) hook sync failed: \(error)")
+        }
+    }
 }

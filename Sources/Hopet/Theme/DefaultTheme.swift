@@ -34,8 +34,8 @@ public enum DefaultTheme {
             .errorInterrupted: "seal-error-interrupted"
         ]
         return suffix.mapValues {
-            FrameAnimation(
-                resourceDirectory: "Resources/Themes/Hopi/\($0)",
+            FrameAnimation.bundlePNG(
+                directory: "Resources/Themes/Hopi/\($0)",
                 framesPerSecond: 8
             )
         }
