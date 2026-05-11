@@ -21,17 +21,17 @@
 | 状态感知动画（idle / responding / thinking / tool-use / permission-prompt / completed / error-interrupted） | ✅ Claude Code 全链路 | — |
 | 状态感知动画（ask-user） | ✅ 通过 Claude 内置 `AskUserQuestion` tool 的 `PreToolUse` / `PostToolUse` hook + `tool_name` 过滤识别 | — |
 | Claude Code hooks 接入 | ✅ | ✅ |
-| Codex 接入 | ⚠️ 实验性"完成通知"（基于 `notify` 字段） | ✅ 完整生命周期 |
+| Codex 接入 | ⚠️ 实验性"完成通知"（基于 `notify` 字段） | ✅ 完整生命周期（`hooks.json` 6 hook：SessionStart / UserPromptSubmit / Pre&PostToolUse / PermissionRequest / Stop） |
 | 刘海屏 Dynamic Notch + 无刘海机型降级顶条 | ✅ | ✅ |
-| 桌面宠物（**每个 AI 工具一只**：Claude / Codex 各 1，含拖拽、位置记忆） | ✅ | ✅ |
-| 会话气泡（每只宠物周围环绕，每个气泡 = 1 个活跃 session） | ✅ 默认显示一层 cwd / 标题 / 距上次状态变更耗时 | ✅ + 拖拽重排 |
+| 桌面宠物（**全局一只**：聚合所有 AI 工具、所有 session，含拖拽、位置记忆） | ✅ | ✅ |
+| 会话气泡（围绕全局宠物，每个气泡 = 1 个活跃 session） | ✅ 默认显示一层 cwd / 标题 / 距上次状态变更耗时 | ✅ + 拖拽重排 |
 | 状态聚合（多会话 → 单宠物按优先级聚合，详见 [hooks-and-priority.md §2](./hooks-and-priority.md#2-petstate-优先级)） | ✅ | ✅ |
 | 点击宠物本体 → 弹出"目录选择 + 输入"对话框 → 新开终端启动 CLI | ⛔ v0.1 不交付（详见 §12.5） | 视用户需求决定 |
 | 点击会话气泡 → 展开**只读**状态卡 / 在 Permission/AskUserQuestion 挂起时展开**可交互**卡片 | ✅ Permission Allow-Deny + AskUserQuestion 结构化答题（hook 同步回包，跨所有宿主）；**不**支持气泡里自由输入消息（详见 §12.5） | 评估 PTY wrapper / IDE 扩展两条路 |
 | AskUserQuestion 触发 → 该 session 气泡自动展开为对话气泡，原位回答 | ✅ 通过 PermissionRequest hook + `updatedInput.answers` | ✅ |
 | 内置默认 Hopi 主题 | ✅ | ✅ |
 | `.hopettheme` 第三方主题导入 | — | ✅ |
-| AI 工具 ↔ 主题绑定 | 全局单一主题 | 按 AI 工具分别绑定 |
+| 主题切换（全局唯一） | ✅ | ✅ |
 | 宠物管理面板（Overview / Themes / Bindings / Hooks / Behavior / Notifications / About） | ✅ 骨架 | ✅ 完整 |
 | Hook 安装向导 + Doctor | ✅ | ✅ |
 | `hopet` CLI 伴侣 | — | ✅ |
@@ -59,7 +59,7 @@
 | **Hopet.app** | 用户可见的主 App，提供宠物渲染、管理面板、刘海条 UI。 |
 | **HopetCore** | 内置在 App 主进程内的守护子系统，负责 IPC、会话状态机、事件分发。 |
 | **Session** | 一个活跃的 AI CLI 会话（Claude Code / Codex 的一个运行实例），由 `sessionId` 唯一标识。 |
-| **PetInstance** | 一只宠物的渲染实例，1:1 绑定一个 `AITool`（v0.1 即 Claude / Codex 各一只），状态由该 AI 下所有活跃 session 聚合得出。 |
+| **PetInstance** | 全局唯一的宠物渲染实例。状态由所有 AI 工具下的所有活跃 session 聚合得出。 |
 | **SessionBubble** | 围绕宠物环绕的会话气泡，1:1 绑定一个 Session，承载 cwd / 标题 / 状态时长等元信息。 |
 | **ThemePackage** | 一个主题包，包含动画资源与 manifest.json。 |
 | **Hook 脚本** | AI 工具在状态转换点调用的 shell 脚本，把事件推送到 HopetCore。 |
@@ -330,22 +330,21 @@ enum EventKind: String, Codable {
 
 ### 6.5 PetInstance 与 SessionBubble
 
-**关键变化（v0.1 起）**：宠物按 **AI 工具** 实例化（Claude 一只、Codex 一只），不再按 session。每只宠物周围环绕若干 `SessionBubble`，每个气泡对应该 AI 下的一个活跃 session。
+**关键变化（v0.x 起）**：宠物**全局唯一**——所有 AI 工具的所有活跃 session 共用同一只宠物。宠物状态由全部 session 聚合得出（最高优先级胜出，见 §7.4）。`SessionBubble.tool` 字段保留作为来源元信息，但不再决定归属哪只宠物。
 
 ```swift
 struct PetInstance: Identifiable {
     let id: UUID                       // 渲染实例 id
-    let tool: AITool                   // 关键：宠物绑定的是 AI 工具
     var themeId: String
     var screenPosition: CGPoint        // 宠物本体的中心坐标
     var visible: Bool
-    var aggregatedState: PetState      // 所有 session 中最高优先级状态（见 §7.4）
+    var aggregatedState: PetState      // 全体活跃 session 中最高优先级状态（见 §7.4）
     var drivenBySessionId: String?     // 当前驱动动画的那个 session（高亮该气泡）
 }
 
 struct SessionBubble: Identifiable {
     let id: String                     // = sessionId
-    let tool: AITool                   // 用于定位归属哪只宠物
+    let tool: AITool                   // 仅作为来源元信息（气泡上的 chip / "<Tool> 想执行此操作"）
     var orbitAngle: Double             // 气泡在宠物周围的角度位置 (0–360°)
     var orbitRing: Int                 // 第几环（默认 0；超过 6 个气泡时第二环为 1，依此类推）
     var displayTitle: String           // 派生自 Session.title，再次截断到 18 字符
@@ -359,7 +358,7 @@ struct SessionBubble: Identifiable {
 气泡布局算法、视觉规格见 §[12.4](#124-会话气泡布局算法)。
 
 **气泡生命周期**：
-- **创建**：`session_start` → 在该 AI 的宠物周围插入新气泡，按 `startedAt` 顺序顺时针排列
+- **创建**：`session_start` → 在唯一宠物周围插入新气泡，按 `startedAt` 顺序顺时针排列
 - **更新**：`stateSince` 变化 → 重算 `displayElapsed`；`title` 变化 → 重算 `displayTitle`
 - **淘汰**：`session_end` 或 60 分钟无事件 → 气泡淡出动画 0.3s 后移除，剩余气泡重排
 
@@ -432,14 +431,9 @@ enum TransitionStyle: String, Codable {
 - 单个 state 缺帧 → 该 state fallback 到 `idle`，导入成功但 UI 显示警告徽章
 - `ThemePackage` 不实现 `Codable`，避免与 manifest 来回切换的混乱
 
-### 6.7 Binding（AI ↔ 主题）
+### 6.7 主题选择（全局单一）
 
-```swift
-struct ToolThemeBinding: Codable {
-    var tool: AITool
-    var themeId: String
-}
-```
+v0.x 起宠物全局唯一，主题也只有一个全局值——`HopetConfig.activeThemeId`。`ToolThemeBinding` 结构已废弃，未来若引入按 cwd / session 切主题，会单独建模，不会回到"按 AI 工具绑定"。
 
 ---
 
@@ -509,7 +503,7 @@ stateDiagram-v2
 
 ### 7.4 宠物聚合状态（多 session → 单宠物）
 
-宠物按 AI 工具实例化（每个 AI 一只），其 `aggregatedState` 等于该 AI 下所有活跃 session 的最高优先级状态。
+宠物全局唯一，其 `aggregatedState` 等于所有活跃 session（跨工具）的最高优先级状态。
 
 **优先级表、聚合算法、tie-break 规则、边界情况** —— 单一权威来源在 [hooks-and-priority.md §2 与 §3](./hooks-and-priority.md#2-petstate-优先级)。本节仅描述触发与广播的 Combine 链路：
 
@@ -520,7 +514,7 @@ Session.currentState 变化
 SessionRegistry.didMutate(.session(id, newState))
     │
     ▼
-PetAggregator.recompute(tool: ..)   ← 同步执行
+PetAggregator.recompute()           ← 同步执行
     │
     ▼
 PetInstance.aggregatedState 改变
@@ -686,33 +680,59 @@ hopet-emit --tool claude-code --event pre_tool_use \
 
 这与 §10.3 隐私边界一致。
 
-### 8.5 Codex Hook 脚本样例（v0.1 实验性）
+### 8.5 Codex Hook 脚本样例（v0.2 起接入官方 hooks）
 
-Codex CLI 当前没有 Claude Code 那种细粒度生命周期 hook 体系，主要通过 `~/.codex/config.toml` 的 `notify` 字段在每次 turn 完成时调用一个外部命令。
+Codex CLI 0.129.0-alpha 起公开了与 Claude 几乎一致的细粒度生命周期 hook 体系。启用方式：`~/.codex/config.toml` 设 `[features] codex_hooks = true`，hook 注册写入 `~/.codex/hooks.json`，顶层结构与 Claude `settings.json.hooks` 字典完全同形（`{ "hooks": { <EventName>: [{ "hooks": [{ "type": "command", "command": "...", "timeout": <s> }] }] } }`）。Hopet v0.2 起直接接入这套 hook，取代 v0.1 的 `[notify]` 完成通知。
 
-**v0.1 仅实现"完成通知实验支持"**，而非完整状态链路：
+#### 8.5.1 `~/.codex/hooks.json` 片段（HopetHookKit 自动 merge）
 
-```toml
-# ~/.codex/config.toml （HopetHookKit 自动 merge）
-[notify]
-command = ["~/.hopet/bin/hopet-emit", "--tool", "codex", "--event", "stop"]
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "~/.hopet/bin/hopet-emit --tool codex --event session_start", "timeout": 30 }] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "~/.hopet/bin/hopet-emit --tool codex --event user_prompt", "timeout": 30 }] }
+    ],
+    "PreToolUse": [
+      { "hooks": [{ "type": "command", "command": "~/.hopet/bin/hopet-emit --tool codex --event pre_tool_use", "timeout": 30 }] }
+    ],
+    "PostToolUse": [
+      { "hooks": [{ "type": "command", "command": "~/.hopet/bin/hopet-emit --tool codex --event post_tool_use", "timeout": 30 }] }
+    ],
+    "PermissionRequest": [
+      { "hooks": [{ "type": "command", "command": "~/.hopet/bin/hopet-emit --tool codex --event permission_ask", "timeout": 590 }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "~/.hopet/bin/hopet-emit --tool codex --event stop", "timeout": 30 }] }
+    ]
+  }
+}
 ```
 
-**v0.1 Codex 的能力边界**（写入 README 与 Onboarding）：
+合并策略与 Claude 一致：append Hopet 的 marker 条目、保留其它工具（clawd-on-desk 等）已经注册的条目；卸载时只剔除 hopet marker 的命令。`PermissionRequest` 的 timeout 给足够大的值（≈10 分钟）允许用户慢决策。
 
-| 状态 | 是否可识别 | 备注 |
+#### 8.5.2 `hopet-emit` 对 Codex payload 的差异处理
+
+详细字段差异表见 [hooks-and-priority.md §1.2](./hooks-and-priority.md#12-codex-cli-实际订阅的-6-个-hook-v02)。`hopet-emit` 在 `--tool codex` 路径上额外做两件事：
+
+1. **`stop_hook_active=true` 静默退出**：Codex 的 Stop hook 同 Claude 一样有自递归保护标志，必须早退避免无限递归
+2. **`session_id` 兜底**：Codex 经常发空 `session_id`，但 `transcript_path` 形如 `rollout-<isoDateUtc>-<uuid>.jsonl`，文件名 UUID 稳定唯一。空 sid 时从 transcript_path 抽 uuid 拼成 `codex-<uuid>` 写回 payload，避免被 EventRouter 的 `anon-` 前缀逻辑当 subagent 丢弃
+
+#### 8.5.3 Codex 能力边界（v0.2）
+
+| 状态 | 是否可识别 | 事件源 |
 | --- | --- | --- |
-| `stop` / `completed` | ✅ | 来自 `notify` |
-| `idle` | ✅ | `completed → 2s → idle` 自然回到 |
-| `responding` / `thinking` / `tool-use` / `permission-prompt` | ❌ v0.1 | 无可靠事件源 |
-| `ask-user` | ❌ v0.1 | 同上 |
-| `error-interrupted` | ⚠️ | 仅当 `notify` payload 显式带 `status=error` 时识别 |
+| `idle` | ✅ | SessionStart |
+| `responding` / `thinking` | ✅ | UserPromptSubmit + Core 8s 定时器升级 |
+| `tool-use` | ✅ | PreToolUse / PostToolUse |
+| `permission-prompt` | ✅ | PermissionRequest（同步回包） |
+| `completed` | ✅ | Stop |
+| `ask-user` | ❌ | Codex 无 AskUserQuestion 内置 tool |
+| `error-interrupted` | ❌ | Codex 不分流错误 hook |
 
-**v0.2+ 升级路径**：
-- 若 Codex 增加细粒度 hooks，由 `hopet-emit` 直接消费
-- 否则提供 `hopet codex` wrapper：以子进程方式包裹 `codex`，从 stdout/stderr 解析状态变化（实验性）
-
-> v0.1 不承诺 Codex 的"正在回复"动画。在 Codex session 期间，宠物会处于 idle，直到 `notify` 触发 `completed` 动画。这是已知限制，需在功能矩阵 (features.md 2.1) 显式标注。
+**迁移：旧版 Hopet 写入的 `~/.codex/config.toml [notify]` 块** 在 install 时会被自动清理（识别 `# >>> hopet-managed >>>` / `# <<< hopet-managed <<<` 守卫行），避免 stop 事件被双发。
 
 ---
 
@@ -914,7 +934,7 @@ SpriteKit 实现为 `SpriteKitPetRenderer`，后续可新增 `Live2DPetRenderer`
 
 ### 12.4 会话气泡布局算法
 
-宠物按 AI 工具实例化（每个 AI 一只），周围环绕若干 `SessionBubble`，每个气泡 = 一个活跃 session。
+宠物全局唯一，周围环绕若干 `SessionBubble`，每个气泡 = 一个活跃 session（不区分来源 AI 工具）。
 
 **布局参数**：
 
@@ -980,7 +1000,7 @@ SpriteKit 实现为 `SpriteKitPetRenderer`，后续可新增 `Live2DPetRenderer`
 - [ ] `hopet-emit` Swift CLI helper（替代 shell JSON 拼接）
 - [ ] Claude Code hooks：SessionStart / SessionEnd / UserPromptSubmit / Pre/PostToolUse（含 AskUserQuestion 路由）/ PostToolUseFailure / PermissionRequest / Notification(filtered) / Stop / StopFailure（详见 [hooks-and-priority.md §1.1](./hooks-and-priority.md#11-v01-实际订阅的-8-个-hook)）
 - [ ] 内置 Hopi 主题（8 种状态动画各 8–16 帧）
-- [ ] PetInstance 按 AI 实例化（Claude / Codex 各 1）+ SpriteKit 渲染 + 聚合状态切换（含 ask-user）
+- [ ] PetInstance 全局唯一 + SpriteKit 渲染 + 聚合状态切换（含 ask-user）
 - [ ] SessionBubble 渲染（环绕布局、cwd / title / elapsed 显示、leader 高亮、AskUserQuestion 自动展开）
 - [ ] PetAggregator（按优先级聚合多 session → 单宠物动画）
 - [ ] NotchWindow 三态 + 无刘海机型降级顶条
@@ -993,7 +1013,7 @@ SpriteKit 实现为 `SpriteKitPetRenderer`，后续可新增 `Live2DPetRenderer`
 
 - ⛔ **气泡里自由打字往已有 session 注入消息**（详见 §12.5；macOS 无干净通用注入路径，需 PTY wrapper 或 IDE 扩展，留待后续版本评估）
 - ⛔ `.hopettheme` 第三方主题导入
-- ⛔ 按 AI 工具分别绑定主题（v0.1 全局单一）
+- ⛔ 按 AI 工具实例化多只宠物（v0.x 起统一为全局单只）
 - ⛔ Codex 细粒度状态（v0.1 仅完成通知实验性）
 - ⛔ MCP `Elicitation` / `ElicitationResult` 路由（v0.2 接入）
 - ⛔ Sparkle 自动更新
@@ -1006,7 +1026,6 @@ SpriteKit 实现为 `SpriteKitPetRenderer`，后续可新增 `Live2DPetRenderer`
 - [ ] MCP `Elicitation` / `ElicitationResult` 路由到 ask_user / ask_user_resolved
 - [ ] 气泡拖拽重排（用户自定义环绕顺序）
 - [ ] `.hopettheme` 导入 + 主题管理 UI（含 §9.3.1 zip slip 防护）
-- [ ] 按 AI 工具绑定主题
 - [ ] `hopet` CLI 伴侣（doctor / theme / send）
 - [ ] Sparkle 2 + EdDSA 签名
 

@@ -27,19 +27,24 @@ public struct SessionBubbleView: View {
     /// AskUserQuestion 答题提交回调。`answers` 形如 `{ "问题文案": "回答" }`；
     /// `cancel = true` 表示用户取消（让 Claude 走自身 UI）。
     let onResolveAskUser: ([String: String], Bool) -> Void
+    /// 手动关闭：用户点 defaultCard / askUserCard 右上角的 ✕。
+    /// 真活会话被误关时下一次状态事件会冷启重建（详见 InputCoordinator.dismissSession）。
+    let onDismiss: () -> Void
 
     public init(
         bubble: SessionBubble,
         isLeader: Bool,
         stateDurationPhrase: String,
         onResolvePermission: @escaping (String, String?) -> Void = { _, _ in },
-        onResolveAskUser: @escaping ([String: String], Bool) -> Void = { _, _ in }
+        onResolveAskUser: @escaping ([String: String], Bool) -> Void = { _, _ in },
+        onDismiss: @escaping () -> Void = {}
     ) {
         self.bubble = bubble
         self.isLeader = isLeader
         self.stateDurationPhrase = stateDurationPhrase
         self.onResolvePermission = onResolvePermission
         self.onResolveAskUser = onResolveAskUser
+        self.onDismiss = onDismiss
     }
 
     @FocusState private var inputFocused: Bool
@@ -167,6 +172,22 @@ public struct SessionBubbleView: View {
         .buttonStyle(.plain)
     }
 
+    /// defaultCard / askUserCard 右上角的"清除气泡"按钮：
+    /// 比 paletteDismissButton 更小、更低对比度，避免在闲置卡片里抢眼。
+    /// 仅从 registry 移除该 session；真活会话下一次事件冷启会重建气泡，僵尸气泡则永久消失。
+    @ViewBuilder
+    private func defaultDismissButton(action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "xmark")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(Color.white)
+                .frame(width: 14, height: 14)
+                .background(Circle().fill(Color.secondary.opacity(0.45)))
+        }
+        .buttonStyle(.plain)
+        .help("清除此气泡（会话若仍活跃，下次状态变化会重新出现）")
+    }
+
     /// 权限请求卡片（PermissionRequest hook 触发）。
     private var permissionCard: some View {
         let pp = bubble.pendingPermission!
@@ -186,7 +207,7 @@ public struct SessionBubbleView: View {
             }
 
             // 主标题
-            Text("Claude 想执行此操作")
+            Text("\(bubble.tool.displayName) 想执行此操作")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.primary)
 
@@ -512,13 +533,17 @@ public struct SessionBubbleView: View {
     }
 
     /// 旧 fire-and-forget pendingQuestion 卡片（PreToolUse `tool_name=AskUserQuestion` 路径）。
-    /// 这条路径没带 requestId，无法同步回包，只能展示提示让用户回到原终端作答；
-    /// 新会话列表布局下卡片常驻显示，没有"关闭"语义——pendingQuestion 由协议层在
-    /// 下一次状态变更时自然清空，视图随即回到 defaultCard。
+    /// 这条路径没带 requestId，无法同步回包，只能展示提示让用户回到原终端作答。
+    /// pendingQuestion 通常由协议层在下一次状态变更时自然清空，视图随即回到 defaultCard；
+    /// 右上角的 ✕ 兜底——遇到僵尸卡片（事件未到达）让用户手动清掉。
     private var askUserCard: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("❓ 在等你回答")
-                .font(.system(size: 11, weight: .semibold))
+            HStack(alignment: .center) {
+                Text("❓ 在等你回答")
+                    .font(.system(size: 11, weight: .semibold))
+                Spacer()
+                defaultDismissButton { popThen(onDismiss) }
+            }
             if let q = bubble.pendingQuestion {
                 Text(q)
                     .font(.system(size: 10))
@@ -548,7 +573,7 @@ public struct SessionBubbleView: View {
                 Text(headerLabel)
                     .font(.system(size: 11, weight: .semibold))
                     .lineLimit(1)
-                    .truncationMode(.middle)
+                    .truncationMode(.tail)
 
                 Spacer(minLength: 6)
 
@@ -557,6 +582,8 @@ public struct SessionBubbleView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .fixedSize()
+
+                defaultDismissButton { popThen(onDismiss) }
             }
 
             Text(secondLineText)

@@ -1,7 +1,8 @@
 import Foundation
 import Combine
 
-/// 把多 session → 单宠物的优先级聚合，权威算法见 hooks-and-priority.md §3.2。
+/// 把多 session → 单宠物的优先级聚合（全局唯一宠物，跨所有 AI 工具）。
+/// 权威算法见 hooks-and-priority.md §3.2。
 @MainActor
 public final class PetAggregator {
     private unowned let registry: SessionRegistry
@@ -14,22 +15,20 @@ public final class PetAggregator {
             .sink { [weak self] mutation in
                 guard let self else { return }
                 switch mutation {
-                case .added(_, let tool),
-                     .removed(_, let tool),
-                     .stateChanged(_, let tool, _, _):
-                    self.recompute(tool: tool)
+                case .added, .removed, .stateChanged:
+                    self.recompute()
                 case .fieldsUpdated:
                     break
                 }
             }
             .store(in: &bag)
 
-        for tool in registry.pets.keys { recompute(tool: tool) }
+        recompute()
     }
 
-    public func recompute(tool: AITool) {
-        guard let current = registry.pets[tool] else { return }
-        let active = registry.activeSessions(of: tool)
+    public func recompute() {
+        let current = registry.pet
+        let active = registry.activeSessions
         let newState: PetState
         let newDriver: String?
         if active.isEmpty {
@@ -47,7 +46,7 @@ public final class PetAggregator {
             newDriver = leader.id
         }
         guard current.aggregatedState != newState || current.drivenBySessionId != newDriver else { return }
-        registry.updatePet(tool) {
+        registry.updatePet {
             $0.aggregatedState = newState
             $0.drivenBySessionId = newDriver
         }

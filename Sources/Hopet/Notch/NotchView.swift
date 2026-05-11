@@ -8,24 +8,25 @@ public struct NotchView: View {
         self.registry = registry
     }
 
-    /// 当前最高优先级的"宠物 + 状态"——只展示一条。
-    private var leader: (PetInstance, AITool, Session?)? {
-        let candidates = registry.pets.values
-            .sorted { $0.aggregatedState.priority < $1.aggregatedState.priority }
-        guard let pet = candidates.first else { return nil }
-        let session = pet.drivenBySessionId.flatMap { registry.session($0) }
-        return (pet, pet.tool, session)
+    /// 当前 leader session（驱动宠物动画的那条）。可能为空——所有 session 都退出后 pet 进 idle，
+    /// `drivenBySessionId` 为 nil。
+    private var leaderSession: Session? {
+        registry.pet.drivenBySessionId.flatMap { registry.session($0) }
     }
 
     public var body: some View {
+        let pet = registry.pet
+        let session = leaderSession
         HStack(spacing: 12) {
-            if let (pet, tool, session) = leader {
+            if session != nil || pet.aggregatedState != .idle {
                 Circle()
                     .fill(pet.aggregatedState.accentColor)
                     .frame(width: 10, height: 10)
-                Text(tool.displayName)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white)
+                if let tool = session?.tool {
+                    Text(tool.displayName)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
                 Text(pet.aggregatedState.notchCaption)
                     .font(.system(size: 12))
                     .foregroundStyle(.white.opacity(0.8))

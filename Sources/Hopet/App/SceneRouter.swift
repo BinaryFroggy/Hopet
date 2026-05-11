@@ -91,7 +91,7 @@ public final class SceneRouter {
 
             thinkingTimer.start()
             decayTimer.start()
-            petWindowController.showAll()
+            petWindowController.show()
             // 刘海条暂不展示，等三态/降级顶条视觉打磨完再开。controller / wiring 保留。
             // notchController.show()
             HopetLog.info("Hopet booted.")
@@ -110,7 +110,7 @@ public final class SceneRouter {
     }
 
     public func openPreferences() { preferencesController.show() }
-    public func toggleAllPets()   { petWindowController.toggleAll() }
+    public func togglePet()       { petWindowController.toggle() }
 
     /// 把外观偏好映射到 `NSApp.appearance`：light → .aqua / dark → .darkAqua / system → nil。
     /// See preferences.md §6.4.

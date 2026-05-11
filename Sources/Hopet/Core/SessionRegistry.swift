@@ -5,7 +5,8 @@ import Combine
 @MainActor
 public final class SessionRegistry: ObservableObject {
     @Published public private(set) var sessions: [String: Session] = [:]
-    @Published public private(set) var pets: [AITool: PetInstance] = [:]
+    /// 全局唯一宠物（v0.x 起：所有 AI 工具共用一只）。
+    @Published public private(set) var pet: PetInstance
 
     /// 「单 session 状态变化 / 加入 / 移除」的细粒度变更广播。
     public let mutations = PassthroughSubject<Mutation, Never>()
@@ -17,24 +18,13 @@ public final class SessionRegistry: ObservableObject {
         case fieldsUpdated(sessionId: String)
     }
 
-    /// v0.1：只为 Claude 创建宠物实例。Codex 留到 v0.2，那时 hooks 也成熟。
-    public static let activeTools: [AITool] = [.claudeCode]
-
     public init() {
-        for tool in Self.activeTools {
-            pets[tool] = PetInstance(tool: tool, screenPosition: defaultPosition(for: tool))
-        }
+        self.pet = PetInstance(screenPosition: Self.defaultPosition())
     }
 
-    private func defaultPosition(for tool: AITool) -> CGPoint {
-        // 主屏右下，Codex 再向左偏移 200。具体 frame 在 PetWindow 创建时再 clamp。
-        let baseX: CGFloat = 1400
-        let baseY: CGFloat = 200
-        switch tool {
-        case .claudeCode: return CGPoint(x: baseX, y: baseY)
-        case .codex:      return CGPoint(x: baseX - 200, y: baseY)
-        case .custom:     return CGPoint(x: baseX - 400, y: baseY)
-        }
+    /// 全局宠物默认位置。后续若引入位置持久化，会读 ConfigStore。
+    private static func defaultPosition() -> CGPoint {
+        CGPoint(x: 1400, y: 200)
     }
 
     // MARK: - Mutations
@@ -79,17 +69,23 @@ public final class SessionRegistry: ObservableObject {
         mutations.send(.fieldsUpdated(sessionId: sessionId))
     }
 
+    /// 同工具的活跃 session。`EventRouter.pruneStaleSiblings` 等仍按 tool 维度判定"同一终端的躺尸"。
     public func activeSessions(of tool: AITool) -> [Session] {
         sessions.values.filter { $0.tool == tool }
+    }
+
+    /// 所有活跃 session（跨 tool）。PetAggregator / PetStageView 消费此列表。
+    public var activeSessions: [Session] {
+        Array(sessions.values)
     }
 
     public func session(_ id: String) -> Session? { sessions[id] }
 
     // MARK: - Pet aggregation hook
 
-    public func updatePet(_ tool: AITool, mutate: (inout PetInstance) -> Void) {
-        guard var p = pets[tool] else { return }
+    public func updatePet(_ mutate: (inout PetInstance) -> Void) {
+        var p = pet
         mutate(&p)
-        pets[tool] = p
+        pet = p
     }
 }
