@@ -23,11 +23,15 @@ public enum DefaultTheme {
     )
 
     private static func hopiAnimations() -> [PetState: FrameAnimation] {
+        // 目录名严格对齐 PetState.rawValue（与 user theme manifest.json 的 animation
+        // key 同一套 kebab-case slug），字典只承担 PetState → 目录的拼接。
+        // seal-responding 的帧已经在 sprite 阶段按 0.82 缩好并居中（详见
+        // scripts/build-pet-animation.py 的 --scale 用法），渲染层不再做二次缩放。
         let suffix: [PetState: String] = [
             .idle:             "seal-idle",
             .thinking:         "seal-thinking",
-            .responding:       "seal-working",
-            .toolUse:          "seal-play-ball",
+            .responding:       "seal-responding",
+            .toolUse:          "seal-tool-use",
             .permissionPrompt: "seal-permission-prompt",
             .askUser:          "seal-ask-user",
             .completed:        "seal-completed",
