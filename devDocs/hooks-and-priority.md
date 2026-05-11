@@ -48,7 +48,7 @@
 | 27 | `Elicitation` | MCP server 请求用户输入 | `server` 名称 | ✅ accept/decline/cancel | ⚠️ v0.1 不订阅（路由仅含 AskUserQuestion）；v0.2 同样路由到 `ask_user` |
 | 28 | `ElicitationResult` | 用户响应 MCP elicitation | `server`、`content` | ✅ override/block | ⚠️ v0.1 不订阅；v0.2 路由到 `ask_user_resolved` |
 
-### 1.1 v0.1 实际订阅的 8 个 hook
+### 1.1 v0.1 Claude Code 实际订阅的 8 个 hook
 
 ```
 SessionStart → session_start
@@ -65,11 +65,44 @@ StopFailure → error
 
 > 注：`PostToolUseFailure` / `StopFailure` 是从训练知识里漏掉的事件，把它们纳入后 `error-interrupted` 状态在 v0.1 即拥有真实事件源，无需等 v0.2。
 
+### 1.2 Codex CLI 实际订阅的 6 个 hook（v0.2+）
+
+Codex CLI 0.129.0-alpha 起公开了与 Claude 几乎一致的细粒度生命周期 hook 体系（启用方式：`~/.codex/config.toml` 设 `[features] codex_hooks = true`，配置文件 `~/.codex/hooks.json`，结构与 Claude `hooks` 字典同形）。Hopet v0.2 起直接接入这套 hook，取代 v0.1 仅有的 `[notify]` 完成通知。
+
+```
+SessionStart → session_start
+UserPromptSubmit → user_prompt
+PreToolUse → pre_tool_use
+PostToolUse → post_tool_use
+PermissionRequest → permission_ask
+Stop → stop
+```
+
+Codex 当前**不暴露**这些 Claude 有的事件，因此 Hopet 不订阅、靠 IPC 端的其它路径兜底：
+
+- `SessionEnd` — 用架构 §7.3 的"60 分钟无事件回收"路径替代
+- `AskUserQuestion` — Codex 没有这个内置 tool；问询场景由 `PermissionRequest` 承载
+- `PostToolUseFailure` / `StopFailure` — Codex 不分流错误事件
+- `Notification` / `Compact` / `Subagent*` / `Task*` — Codex 不发
+
+**Payload 命名差异**：
+
+| 字段 | Claude | Codex | hopet-emit 处理 |
+| --- | --- | --- | --- |
+| 事件名 | `hookEventName`（camelCase） | `hook_event_name`（snake_case） | 不读取（白名单未含此字段） |
+| session id | `session_id` | `session_id`（**常为空串**） | Codex 路径下空时从 `transcript_path` 的 `rollout-<date>-<uuid>.jsonl` 抽 uuid 兜底成 `codex-<uuid>` |
+| 工具相关 | `tool_name` / `tool_input` / `tool_use_id` | 同 | 直接复用白名单 |
+| Stop 防递归 | — | `stop_hook_active`（true 时必须静默退出，否则递归） | Codex 路径下识别后 `exit 0` |
+
+**Permission 回包格式**：Codex 与 Claude 一致，输出 `{ hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "allow"|"deny", message? } } }`，`hopet-emit.emitDecision()` 现成可用。
+
+> 已知体验注意点：若同机器上 Codex `hooks.json` 同时被多个工具（如 clawd-on-desk）注册了 `PermissionRequest`，多个 hook 会并发收到事件并各自请求决策。Hopet 的合并策略保留其它工具条目（只 append/卸载自己的 marker 行），不主动清理别人——多端决策的优先级由 Codex 内部规则决定。
+
 ---
 
 ## 2. PetState 优先级
 
-新设计中宠物按 **AI 工具** 而非 session 实例化，宠物所展示的 `aggregatedState` 等于其下所有活跃 session 中**优先级最高**的那个 session 状态。
+新设计中宠物**全局唯一**，所有 AI 工具的所有活跃 session 共用一只宠物；宠物展示的 `aggregatedState` 等于所有活跃 session 中**优先级最高**的那个 session 状态。
 
 | 优先级 | PetState | 含义 | 选定理由 |
 | --- | --- | --- | --- |
@@ -93,7 +126,7 @@ StopFailure → error
 
 ### 2.2 同优先级的 tie-break
 
-当同一 AI 下多个 session 处于同一优先级状态时：
+当多个 session（无论来自哪个 AI 工具）处于同一优先级状态时：
 
 1. 先按 `stateSince` 时间倒序（最近变更的在前）
 2. 再按 `sessionId` 字母序（确定性）
@@ -106,16 +139,16 @@ StopFailure → error
 
 ### 3.1 触发条件
 
-每当任何 session 的 `currentState` 变化、任何 session 被加入或移除、Core 定时器把 `responding` 升级为 `thinking`，都会触发对应宠物的重新聚合。
+每当任何 session 的 `currentState` 变化、任何 session 被加入或移除、Core 定时器把 `responding` 升级为 `thinking`，都会触发宠物重新聚合。
 
 ### 3.2 算法
 
 ```swift
-func recomputeAggregatedState(for tool: AITool) {
-    let sessions = registry.activeSessions(of: tool)
+func recomputeAggregatedState() {
+    let sessions = registry.activeSessions     // 跨所有 AI 工具的活跃 session
     guard !sessions.isEmpty else {
-        pet(of: tool).aggregatedState = .idle      // 无活跃会话 → idle
-        pet(of: tool).drivenBySessionId = nil
+        pet.aggregatedState = .idle             // 无活跃会话 → idle
+        pet.drivenBySessionId = nil
         return
     }
 
@@ -127,8 +160,8 @@ func recomputeAggregatedState(for tool: AITool) {
         return a.id < b.id
     }
     let leader = sorted.first!
-    pet(of: tool).aggregatedState = leader.currentState
-    pet(of: tool).drivenBySessionId = leader.id
+    pet.aggregatedState = leader.currentState
+    pet.drivenBySessionId = leader.id
 }
 ```
 
