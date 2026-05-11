@@ -77,7 +77,7 @@ struct PixelToggle: View {
     @Binding var isOn: Bool
     let tint: Color
 
-    init(isOn: Binding<Bool>, tint: Color = .accentColor) {
+    init(isOn: Binding<Bool>, tint: Color = PixelPalette.mint) {
         self._isOn = isOn
         self.tint = tint
     }
@@ -140,7 +140,7 @@ struct PixelSegmentedControl<Value: Hashable>: View {
     let options: [(value: Value, label: String)]
     let tint: Color
 
-    init(selection: Binding<Value>, options: [(Value, String)], tint: Color = .accentColor) {
+    init(selection: Binding<Value>, options: [(Value, String)], tint: Color = PixelPalette.sky) {
         self._selection = selection
         self.options = options
         self.tint = tint

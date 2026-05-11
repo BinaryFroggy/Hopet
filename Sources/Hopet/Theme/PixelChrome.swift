@@ -50,6 +50,12 @@ enum PixelPalette {
         scheme == .dark ? Color.white.opacity(0.58) : Color.black.opacity(0.52)
     }
 
+    /// 次操作按钮的文字色：浅色模式下用深灰（避免使用 chromeBlue 蓝字带来的"全场都是品牌色"），
+    /// 暗色模式沿用 ink 的白字保持可读。See preferences.md §11.4。
+    static func buttonInk(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color.white.opacity(0.92) : Color.black.opacity(0.78)
+    }
+
     /// 主题强调色覆盖底色的染色比例。dark 拉高饱和度。
     static func accentTint(_ scheme: ColorScheme) -> Double {
         scheme == .dark ? 0.40 : 0.10
@@ -234,33 +240,83 @@ struct PixelButtonStyle: ButtonStyle {
     }
 
     func makeBody(configuration: Configuration) -> some View {
+        PixelButtonBody(
+            configuration: configuration,
+            tint: tint,
+            prominent: prominent,
+            compact: compact,
+            colorScheme: colorScheme
+        )
+    }
+}
+
+/// PixelButtonStyle 的实际渲染。拆成独立 View 是为了让 `@State flashPressed` 持有
+/// "按下后短暂保留高亮"的状态——某些按钮 action（sheet / modal / 状态切换会立即重建视图）
+/// 会瞬间吃掉 `configuration.isPressed`，单帧 `isPressed=true` 不够 SwiftUI 渲染出动效。
+/// 这里在 onChange(isPressed) 上升沿点亮 flash，下沿延 120ms 关掉，保证用户能看到。
+private struct PixelButtonBody: View {
+    let configuration: ButtonStyle.Configuration
+    let tint: Color
+    let prominent: Bool
+    let compact: Bool
+    let colorScheme: ColorScheme
+
+    @State private var flashPressed: Bool = false
+
+    var body: some View {
         let shape = RoundedRectangle(cornerRadius: 4, style: .continuous)
-        let pressed = configuration.isPressed
+        let pressed = configuration.isPressed || flashPressed
         let fontSize: CGFloat = compact ? 11 : 12
         let padH: CGFloat = compact ? 10 : 14
         let padV: CGFloat = compact ? 5 : 7
         let stroke: CGFloat = compact ? 1.2 : 1.5
+
         return configuration.label
             .font(.system(size: fontSize, weight: .bold, design: .monospaced))
             .padding(.horizontal, padH)
             .padding(.vertical, padV)
-            .foregroundStyle(prominent ? Color.white : PixelPalette.ink(colorScheme))
+            .foregroundStyle(prominent ? Color.white : PixelPalette.buttonInk(colorScheme))
             .background(
                 ZStack {
                     if !pressed {
                         shape
                             .fill(PixelPalette.stroke)
-                            .offset(x: 0, y: 2)
+                            .offset(x: 0, y: 3)
                     }
-                    shape.fill(prominent ? AnyShapeStyle(tint) : AnyShapeStyle(tint.opacity(0.22)))
+                    if prominent {
+                        shape.fill(tint)
+                        if pressed {
+                            // 按下时叠一层暗色让 prominent 按钮"陷下去"的对比更明显。
+                            shape.fill(Color.black.opacity(0.18))
+                        }
+                    } else {
+                        shape.fill(PixelPalette.base(colorScheme))
+                        let dyeOpacity: Double = pressed
+                            ? (colorScheme == .dark ? 0.55 : 0.32)
+                            : (colorScheme == .dark ? 0.30 : 0.10)
+                        shape.fill(tint.opacity(dyeOpacity))
+                    }
                     shape.stroke(PixelPalette.stroke, lineWidth: stroke)
                     shape
                         .inset(by: stroke)
-                        .stroke(Color.white.opacity(prominent ? 0.45 : 0.60), lineWidth: 1)
+                        .stroke(
+                            Color.white.opacity(pressed ? 0.20 : (prominent ? 0.45 : 0.70)),
+                            lineWidth: 1
+                        )
                 }
             )
-            .offset(x: 0, y: pressed ? 2 : 0)
-            .animation(.linear(duration: 0.05), value: pressed)
+            .scaleEffect(pressed ? 0.96 : 1.0, anchor: .center)
+            .offset(x: 0, y: pressed ? 3 : 0)
+            .animation(.spring(response: 0.22, dampingFraction: 0.62), value: pressed)
+            .onChange(of: configuration.isPressed) { _, newValue in
+                if newValue {
+                    flashPressed = true
+                } else {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                        flashPressed = false
+                    }
+                }
+            }
     }
 }
 

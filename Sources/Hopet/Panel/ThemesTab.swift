@@ -16,7 +16,7 @@ struct ThemesTab: View {
             } label: {
                 Label("Import Theme…", systemImage: "square.and.arrow.down")
             }
-            .buttonStyle(PixelButtonStyle(tint: .accentColor, prominent: true))
+            .buttonStyle(PixelButtonStyle(tint: PixelPalette.mint, prominent: true))
 
             ForEach(themes.themes, id: \.id) { theme in
                 ThemeRow(
@@ -68,7 +68,7 @@ private struct ThemeRow: View {
     var body: some View {
         PixelCard(
             theme.name.uppercased(),
-            accent: isActive ? .accentColor : .clear,
+            accent: isActive ? PixelPalette.mint : .clear,
             titleTint: theme.isUserProvided ? PixelPalette.mint : PixelPalette.sky
         ) {
             HStack(alignment: .top, spacing: 12) {
@@ -104,7 +104,7 @@ private struct ThemeRow: View {
                             .foregroundStyle(.green)
                     } else {
                         Button("Apply", action: onApply)
-                            .buttonStyle(PixelButtonStyle(tint: .accentColor, prominent: false))
+                            .buttonStyle(PixelButtonStyle(tint: PixelPalette.sky, prominent: false))
                     }
                     if theme.isUserProvided {
                         Button("Delete", action: onDelete)
@@ -208,7 +208,7 @@ private struct ThemeImportSheet: View {
                 Button("Cancel") { dismiss() }
                     .buttonStyle(PixelButtonStyle(tint: .gray, prominent: false))
                 Button("Import") { runImport() }
-                    .buttonStyle(PixelButtonStyle(tint: .accentColor, prominent: true))
+                    .buttonStyle(PixelButtonStyle(tint: PixelPalette.mint, prominent: true))
                     .disabled(!canImport)
             }
         }
@@ -238,13 +238,17 @@ private struct ThemeImportSheet: View {
 }
 
 /// 单个 PetState 的 GIF 拖拽 / 选择槽。
+/// 由于 `pickFile()` 立即弹 `NSOpenPanel` modal 接管鼠标事件，原生 `isPressed` 在松开前
+/// 就被截断，按下动效几乎渲染不到一帧。这里用 `flashPressed` + 延迟一次 RunLoop 再弹 panel
+/// 的方式手动 flash 按下视觉。
 private struct PixelDropSlot: View {
-    @Environment(\.colorScheme) private var colorScheme
     let state: PetState
     @Binding var gifURL: URL?
+    @State private var flashPressed = false
+    @State private var isTargeted = false
 
     var body: some View {
-        Button(action: pickFile) {
+        Button(action: handleTap) {
             HStack(alignment: .center, spacing: 10) {
                 Circle().fill(state.accentColor).frame(width: 8, height: 8)
                 VStack(alignment: .leading, spacing: 2) {
@@ -257,24 +261,19 @@ private struct PixelDropSlot: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
-                Spacer()
+                Spacer(minLength: 0)
                 if gifURL != nil {
                     Image(systemName: "checkmark")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.green)
                 }
             }
-            .padding(8)
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         }
-        .buttonStyle(.plain)
-        .modifier(PixelChrome(
-            cornerRadius: 6,
+        .buttonStyle(PixelDropSlotButtonStyle(
             accent: gifURL == nil ? .clear : state.accentColor,
-            strokeWidth: 1.5,
-            strokeColor: PixelPalette.stroke
+            forcedPressed: flashPressed || isTargeted
         ))
-        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+        .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
             guard let provider = providers.first else { return false }
             _ = provider.loadObject(ofClass: URL.self) { url, _ in
                 guard let url else { return }
@@ -283,6 +282,18 @@ private struct PixelDropSlot: View {
                 }
             }
             return true
+        }
+    }
+
+    private func handleTap() {
+        // 1. 立即点亮按下视觉。
+        withAnimation(.linear(duration: 0.06)) { flashPressed = true }
+        // 2. 等一拍让按下帧先渲染，再回弹 + 弹出 NSOpenPanel。
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
+            withAnimation(.linear(duration: 0.12)) { flashPressed = false }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
+                pickFile()
+            }
         }
     }
 
@@ -295,5 +306,31 @@ private struct PixelDropSlot: View {
         if panel.runModal() == .OK, let url = panel.url {
             gifURL = url
         }
+    }
+}
+
+/// PixelDropSlot 专用按钮样式：整个 chrome 区域接受点击；按下时整槽下沉、accent 切到
+/// `lemon` 亮色 + 描边加粗，与 `PixelButtonStyle` 的"按入"语言同源但更夸张，
+/// 避免 modal 弹出时反馈一闪而过。
+private struct PixelDropSlotButtonStyle: ButtonStyle {
+    let accent: Color
+    let forcedPressed: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        let pressed = configuration.isPressed || forcedPressed
+        return configuration.label
+            .padding(.horizontal, 10)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+            .contentShape(Rectangle())
+            .modifier(PixelChrome(
+                cornerRadius: 6,
+                accent: pressed ? PixelPalette.lemon : accent,
+                strokeWidth: pressed ? 2.0 : 1.5,
+                strokeColor: PixelPalette.stroke
+            ))
+            .scaleEffect(pressed ? 0.97 : 1.0, anchor: .center)
+            .offset(y: pressed ? 3 : 0)
+            .animation(.easeOut(duration: 0.12), value: pressed)
     }
 }
