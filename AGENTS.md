@@ -205,6 +205,8 @@ WIP                                # 不接受 WIP 提交
 
 带 `-vN` 后缀（`-v2`、`-v3` ……）的源图均为草稿，脚本默认不读取也不应被 agent 主动选用；当且仅当人类显式点名某个版本时才传第二个参数 `scripts/build-pet-animation.py <state> DevDocs/assets/seal-<state>-spritesheet-v3.png` 临时跑一次。
 
+某些 sprite 本体占满画框（典型如 `seal-responding` 海豹+笔记本几乎贴边），SwiftUI 用 `scaledToFit` 渲染后视觉会比其他状态偏大。这种情况用 `--scale` 把内容等比缩到与其他状态视觉一致，画框 320×240 保持不变、四周透明：`scripts/build-pet-animation.py responding --scale 0.82`。缩放在资产层完成，渲染层不需要再做二次缩放。
+
 ## 6. 与 `CLAUDE.md` 的关系
 
 `CLAUDE.md` 通过 `@AGENTS.md` 引用本文件。规则改动只在本文件进行，`CLAUDE.md` 不得追加内容。
