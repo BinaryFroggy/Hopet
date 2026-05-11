@@ -557,11 +557,11 @@ PreferencesPaneScaffold(title: "Installed Themes") {
 
 | Tab | 主要部件 | 备注 |
 |---|---|---|
-| OverviewTab | 顶部一排像素 `PixelPetCard`（每个 AI 一张：状态 glyph + 工具名 + 活跃 session 数 + Locate 按钮）+ 下方 `PixelCard` 包裹的 session 列表 | session 列表每行：状态色圆点 + 工具名 + 标题 + badgeLabel + 用时 + `×` 删除按钮（`PixelButtonStyle.gray`） |
+| OverviewTab | 顶部单张像素 `PixelPetCard`（全局宠物：状态 glyph + 活跃 session 数 + Locate 按钮）+ 下方 `PixelCard` 包裹的 session 列表 | session 列表每行：状态色圆点 + 工具名 + 标题 + badgeLabel + 用时 + `×` 删除按钮（`PixelButtonStyle.gray`） |
 | ThemesTab | `PixelButtonStyle.prominent` 的 "Import Theme…" + `PixelCard` ×N（每主题一张：56×56 预览首帧 + 名称 + 描述 + Apply / Delete 按钮） | 主题预览首帧用 `FrameAnimationView` 渲染并叠 `PixelChrome` 边框，关闭抗锯齿；用户主题显示 `[user]` 角标 |
 | AppearanceTab | `PixelCard` 包裹 `PixelSegmentedControl` 三选一 | 选项文字 "Light / Dark / System"；下方一行 monospaced 11pt 解释当前生效 |
-| BindingsTab | 两个 `PixelCard`：①全局主题 `Picker(.menu)`；②每个 AI 的当前绑定列表 | Picker 弹层保留系统外观（§11.2.3） |
-| HooksTab | `PixelCard` ×N（每工具一张：工具名 + Installed/Not installed + `PixelToggle`）；底部 `PixelCard` 包裹 Doctor "Run" 按钮 + monospaced ScrollView | Codex 行附占位说明，勾选只写 config（§1.2 非目标） |
+| BindingsTab | 单个 `PixelCard`：全局主题 `Picker(.menu)` | Picker 弹层保留系统外观（§11.2.3）；宠物全局唯一，无按工具绑定 |
+| HooksTab | 由 `AITool.recognized` 循环渲染 `PixelCard`（每工具一张：工具名 + Listening on/off + `PixelToggle`，软静音开关）；底部 `PixelCard` 包裹 Doctor "Run" 按钮 + monospaced ScrollView | hooks 启动时无条件落盘；toggle off 时 EventRouter 静默丢弃事件，且 SceneRouter 立即清扫该工具下无待决策气泡（挂着 permission/askUser 的会话保留到下一轮决策落定再清） |
 | BehaviorTab | 4 个 `PixelCard`（General / Notch / Terminal / Diagnostics）：前两块全 `PixelToggle`，后两块 `PixelSegmentedControl` | `preferredTerminal` 2 选、`logLevel` 4 选 |
 | NotificationsTab | 2 个 `PixelCard`（Banners 全 `PixelToggle` / Sound 占位说明） | |
 | AboutTab | 居中 `PixelCard`：项目标题 + 版本 + 一句话描述 + feedback Link | |

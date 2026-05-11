@@ -80,7 +80,7 @@
 | **P6** | `completed` | Claude `Stop` hook；Codex `notify` | 开心拍鳍 + 小跳（非循环，1s） | 「完成 ✓」 | 可配置 | ✅ |
 | **P7** | `idle` | 无活跃 session / completed 后 2s | 趴坐眨眼，身体随呼吸起伏，偶尔轻拍短尾鳍 | 「Claude — Idle」 | — | ✅ |
 
-**聚合规则**：宠物展示的是该 AI 下所有活跃 session 中**优先级最高**的那个状态（权威定义见 [hooks-and-priority.md §2](./hooks-and-priority.md#2-petstate-优先级)）。宠物每只对应一个 AI 工具（Claude / Codex），不再随 session 数量增加。**leader session 的气泡边框会高亮**，让用户一眼看出当下宠物状态来自哪个 session。
+**聚合规则**：宠物展示的是所有活跃 session（跨所有 AI 工具）中**优先级最高**的那个状态（权威定义见 [hooks-and-priority.md §2](./hooks-and-priority.md#2-petstate-优先级)）。Hopet 全局只有一只宠物，不再随 session 数量或工具数量增加。**leader session 的气泡边框会高亮**，让用户一眼看出当下宠物状态来自哪个 session。
 
 动画切换采用 `AnimationController` 的 `cross-dissolve` 0.2s 过渡；`completed` → `idle` 为 `fade` 过渡。
 
@@ -123,7 +123,7 @@ stateDiagram-v2
 
 ### 3.3 桌面宠物本体
 
-每个 AI 工具实例化**一只**宠物（v0.1：Claude 一只、Codex 一只，最多两只），而非每个会话一只。宠物的状态 = 该 AI 下所有活跃 session 的最高优先级状态（聚合规则见 [hooks-and-priority.md §2-3](./hooks-and-priority.md#2-petstate-优先级)）。
+Hopet **全局只有一只**宠物，所有 AI 工具（Claude / Codex / 未来其它）的所有活跃 session 共用之。宠物状态 = 所有活跃 session 中最高优先级的那个 session 状态（聚合规则见 [hooks-and-priority.md §2-3](./hooks-and-priority.md#2-petstate-优先级)）。
 
 #### 3.3.1 窗口行为
 
@@ -134,24 +134,22 @@ stateDiagram-v2
 
 #### 3.3.2 位置与拖拽
 
-- 启动时从 `config.json` 读取 `lastPosition[tool]`；首次启动 Claude 宠物在主屏右下、Codex 宠物在右下偏左 200px
+- 启动时从 `config.json` 读取 `lastPosition`；首次启动宠物默认在主屏右下
 - 长按 0.2s 进入拖拽态；松开吸附到最近的屏幕边缘（可关闭吸附）
 - 拖动宠物时**会话气泡跟随移动**（保持环绕几何）
 - 拖出屏幕时自动 clamp 回可见区
 
-#### 3.3.3 双宠物排布
+#### 3.3.3 无活跃 session 时
 
-- v0.1 最多两只宠物（Claude / Codex）
-- 二者位置相互独立，由用户拖拽决定；首次启动给出默认间距避免重叠
-- 一只宠物的某个 AI 完全没有活跃 session 时，宠物保持显示（显示为 idle，作为"快速开新会话"入口），可在偏好里设为"无 session 时隐藏"
+宠物保持显示为 idle（作为"看一眼当前状态"的窗口），可在偏好里设为"无 session 时隐藏"。
 
 #### 3.3.4 交互反馈
 
 | 操作 | 反馈 |
 | --- | --- |
-| 鼠标悬停（≥400ms） | 宠物头顶显示小 tooltip：AI 工具名 + 当前 leader session 标题 + 当前聚合状态 |
+| 鼠标悬停（≥400ms） | 宠物头顶显示小 tooltip：当前 leader session 标题 + 当前聚合状态 |
 | 左键单击宠物本体 | v0.1 无操作（曾用于"新开 session"，已移除） |
-| 右键点击宠物 | 弹出 context menu：显示/隐藏 Codex 宠物、切换主题、关闭所有 session、打开管理面板 |
+| 右键点击宠物 | 弹出 context menu：显示/隐藏宠物、切换主题、关闭所有 session、打开管理面板 |
 | 长按（≥0.2s） | 进入拖拽 |
 | 鼠标悬停某个气泡 | 气泡放大 1.1×、显示完整 cwd 路径 tooltip |
 | **左键单击气泡** | 气泡展开为只读状态卡（标题/cwd/状态/耗时）；Permission/AskUserQuestion 挂起时自动展开为可交互卡片（见 §3.4.1 / §3.4.2） |
@@ -225,7 +223,7 @@ v0.1 只有两个用户输入入口，都建立在 **Claude 主动开口**（hoo
 
 ### 3.5 会话气泡（Session Bubbles）
 
-每只宠物周围环绕若干圆形气泡，每个气泡 = 一个活跃 session。气泡是宠物身份信息的最小载体，提供 cwd / 标题 / 距上次状态变更耗时等关键元信息。
+宠物周围环绕若干圆形气泡，每个气泡 = 一个活跃 session（跨 AI 工具）。气泡是宠物身份信息的最小载体，提供 cwd / 标题 / 距上次状态变更耗时等关键元信息；来源工具通过气泡上的 chip 区分。
 
 #### 3.5.1 默认显示内容
 
@@ -297,7 +295,7 @@ v0.1 只有两个用户输入入口，都建立在 **Claude 主动开口**（hoo
 
 #### 3.6.1 Overview
 
-- 当前两只宠物的卡片（Claude / Codex）：缩略图、聚合状态徽章、活跃 session 数、可见性开关、定位按钮（让宠物闪烁 2s）
+- 全局宠物卡片：缩略图、聚合状态徽章、活跃 session 数、可见性开关、定位按钮（让宠物闪烁 2s）
 - 下方 Sessions 列表：每个 session 一行（cwd / title / state / elapsed），可关闭某个 session
 - 空状态提示 + "如何开始" 链接（跳到 Hook 安装 Tab）
 

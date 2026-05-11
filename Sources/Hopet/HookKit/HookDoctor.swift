@@ -22,7 +22,7 @@ public enum HookDoctor {
 
         // Tools
         lines.append("Claude hooks installed: \(installer.isInstalled(.claudeCode) ? "yes" : "no")")
-        lines.append("Codex notify installed:  \(installer.isInstalled(.codex)      ? "yes" : "no")")
+        lines.append("Codex hooks installed:  \(installer.isInstalled(.codex)      ? "yes" : "no")")
 
         return lines.joined(separator: "\n")
     }

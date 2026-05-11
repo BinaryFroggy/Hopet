@@ -91,13 +91,33 @@ guard let toolRaw = args.tool, let eventRaw = args.event else {
 // 配对的 PostToolUse 因此永远不到 cancelPending，权限气泡卡死、宠物状态不切。
 let stdin = FileHandle.standardInput
 let stdinData = stdin.readDataToEndOfFile()
-let hookJson: [String: Any]
+var hookJson: [String: Any]
 if stdinData.isEmpty {
     hookJson = [:]
 } else if let obj = try? JSONSerialization.jsonObject(with: stdinData) as? [String: Any] {
     hookJson = obj
 } else {
     hookJson = [:]
+}
+
+// MARK: - Codex rollout 文件名解析
+//
+// Codex 把 session 持久化到 `~/.codex/sessions/.../rollout-<iso>-<uuid>.jsonl`，hook payload
+// 的 `transcript_path` 就是这个路径。session_id 字段经常为空，但文件名的 UUID 是稳定唯一的。
+// 提取 UUID 用作兜底 sessionId，避免 EventRouter 把 anon-XXXX 当 subagent 丢。
+private let codexRolloutUuidRegex: NSRegularExpression = {
+    let pattern = "rollout-.+-([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\\.jsonl$"
+    return try! NSRegularExpression(pattern: pattern)
+}()
+
+func extractCodexSessionUuid(fromTranscriptPath path: String) -> String? {
+    let fileName = (path as NSString).lastPathComponent
+    let range = NSRange(fileName.startIndex..., in: fileName)
+    guard let match = codexRolloutUuidRegex.firstMatch(in: fileName, range: range),
+          match.numberOfRanges >= 2,
+          let r = Range(match.range(at: 1), in: fileName)
+    else { return nil }
+    return String(fileName[r])
 }
 
 // MARK: - Field path lookup (dotted path)
@@ -120,12 +140,54 @@ func stringify(_ any: Any?) -> String? {
     return nil
 }
 
+// 这里必须先剥再截断到 256：选中的代码常常超过 256 字符，截掉闭合标签后 EventRouter
+// 的正则匹配不到，title 就会变成 "<ide_selection>The user selected...". 与
+// `EventRouter.stripLeadingContextTags` 是同一份正则——AGENTS.md §2.1 禁止 hopet-emit
+// 反向依赖主 App 符号，两份需要同步修改。
+private let leadingContextTagRegex: NSRegularExpression = {
+    let pattern = "\\A\\s*<([A-Za-z][A-Za-z0-9_-]*)(?:\\s[^>]*)?>[\\s\\S]*?</\\1>\\s*"
+    return try! NSRegularExpression(pattern: pattern)
+}()
+
+func stripLeadingContextTags(_ raw: String) -> String {
+    var s = raw
+    while true {
+        let range = NSRange(s.startIndex..., in: s)
+        guard let match = leadingContextTagRegex.firstMatch(in: s, range: range),
+              match.range.location == 0,
+              let r = Range(match.range, in: s)
+        else { break }
+        s = String(s[r.upperBound...])
+    }
+    return s.trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
 // --require / --exclude
 for (k, v) in args.requires {
     guard stringify(value(at: k, in: hookJson)) == v else { exit(0) }
 }
 for (k, v) in args.excludes {
     if stringify(value(at: k, in: hookJson)) == v { exit(0) }
+}
+
+// MARK: - Codex 防递归 / session_id 兜底
+//
+// Codex 的 Stop hook 跟 Claude 一样有自递归保护标志：当本次 hook 是 stop_hook_active=true
+// 触发的，必须静默退出，否则会产生无限递归调用。
+//
+// 同时 Codex 经常发空 session_id；真值需从 transcript_path 抽，文件名形如
+// `rollout-<isoDateUtc>-<uuid>.jsonl`。抓到 uuid 后写回 hookJson.session_id，
+// 让下方通用 sessionId 解析自然走最高优先级分支。
+if toolRaw == "codex" {
+    if let active = value(at: "stop_hook_active", in: hookJson) as? Bool, active {
+        exit(0)
+    }
+    let existingSid = stringify(value(at: "session_id", in: hookJson)) ?? ""
+    if existingSid.isEmpty,
+       let tp = stringify(value(at: "transcript_path", in: hookJson)),
+       let uuid = extractCodexSessionUuid(fromTranscriptPath: tp) {
+        hookJson["session_id"] = "codex-\(uuid)"
+    }
 }
 
 // MARK: - Build StateEvent payload (whitelist fields only)
@@ -157,6 +219,12 @@ let allowedKeys: [String] = [
 var safePayload: [String: Any] = [:]
 for path in allowedKeys {
     if var v = value(at: path, in: hookJson) {
+        // prompt 字段先剥前导上下文标签块，再走通用截断。全是标签时回退到原文，
+        // 保留至少能看到点东西的下限。
+        if path == "prompt", let s = v as? String {
+            let stripped = stripLeadingContextTags(s)
+            v = stripped.isEmpty ? s : stripped
+        }
         if let s = v as? String, s.count > 256 {
             v = String(s.prefix(256))
         }
@@ -265,23 +333,87 @@ func lastAssistantText(fromTranscriptAt path: String) -> String? {
     return nil
 }
 
-/// 等 transcript 写入本轮 end_turn 行后再抽 assistant text。
+/// Codex transcript 格式与 Claude 不同（详见下方解析器内的注释）。从尾向前扫，
+/// 找最后一条 `phase == "final_answer"` 的 assistant message，拼接所有
+/// `output_text` 块；命中 user 行（真用户提问）则提前返回 nil 让上游重试。
+func lastCodexAssistantText(fromTranscriptAt path: String) -> String? {
+    guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+    defer { try? handle.close() }
+
+    let size: UInt64
+    do { size = try handle.seekToEnd() } catch { return nil }
+    let readLen = Int(min(UInt64(transcriptTailBudget), size))
+    let startOffset = size - UInt64(readLen)
+    do { try handle.seek(toOffset: startOffset) } catch { return nil }
+    guard let data = try? handle.read(upToCount: readLen),
+          let raw = String(data: data, encoding: .utf8) else { return nil }
+
+    let text: Substring
+    if startOffset > 0, let firstNewline = raw.firstIndex(of: "\n") {
+        text = raw[raw.index(after: firstNewline)...]
+    } else {
+        text = Substring(raw)
+    }
+
+    // Codex `rollout-*.jsonl` 行结构示例：
+    //   { "timestamp": ..., "type": "response_item",
+    //     "payload": { "type": "message", "role": "assistant",
+    //                  "content": [{ "type": "output_text", "text": "..." }],
+    //                  "phase": "final_answer" } }
+    //   { "type": "event_msg", "payload": { "type": "task_started", ... } }
+    //   { "type": "response_item",
+    //     "payload": { "type": "message", "role": "user", "content": [...] } }
+    //
+    // 扫描终止条件：
+    //   - 命中 payload.role=="assistant" && payload.phase=="final_answer"：返回该行 text。
+    //   - 命中 payload.role=="user" 的 response_item：本轮 final_answer 还没刷盘，立即 nil 让上游重试。
+    //   - event_msg / 中间 message（含 reasoning / tool_call）：跳过。
+    let lines = text.split(separator: "\n", omittingEmptySubsequences: true)
+    for line in lines.reversed() {
+        guard let lineData = line.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any]
+        else { continue }
+        guard (obj["type"] as? String) == "response_item",
+              let payload = obj["payload"] as? [String: Any],
+              (payload["type"] as? String) == "message"
+        else { continue }
+        let role = payload["role"] as? String
+        if role == "user" {
+            // 真用户提问行（Codex 不会用 tool_result 占据 user 位）：本轮 final 未到。
+            return nil
+        }
+        guard role == "assistant" else { continue }
+        guard (payload["phase"] as? String) == "final_answer" else { continue }
+        guard let content = payload["content"] as? [[String: Any]] else { continue }
+        var pieces: [String] = []
+        for block in content {
+            guard (block["type"] as? String) == "output_text",
+                  let t = block["text"] as? String else { continue }
+            pieces.append(t)
+        }
+        let joined = pieces.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !joined.isEmpty { return joined }
+    }
+    return nil
+}
+
+/// 等 transcript 写入本轮 end_turn / final_answer 行后再抽 assistant text。
 ///
 /// Stop hook 触发到文件 flush 之间存在毫秒级（甚至秒级）滞后，且滞后量随磁盘 IO、
-/// Claude Code 版本、系统负载漂移。固定时长 polling 不可靠，改用 fsevents 监听
-/// 文件 write，事件即重读，找到本轮 end_turn 立刻返回。
+/// CLI 版本、系统负载漂移。固定时长 polling 不可靠，改用 fsevents 监听文件 write，
+/// 事件即重读，找到本轮终态立刻返回。
 ///
 /// 流程：
 /// 1. 立即同步读一次（transcript 已 flush 完的常见路径走这里）。
 /// 2. 没读到则打开 fd + DispatchSource 监听 write/extend/delete/rename。
 /// 3. resume 后再 async 读一次（catch-up：覆盖 register 与文件写入之间错过事件的窗口）。
-/// 4. 等 semaphore，超时（默认 5s）兜底——Claude 异常路径下 lastAssistantMessage
-///    宁可留空也不挂住 Stop hook。
+/// 4. 等 semaphore，超时（默认 5s）兜底——异常路径下 lastAssistantMessage 宁可留空
+///    也不挂住 Stop hook。
 ///
 /// 同一 serial queue 跑 event handler 与 catch-up read，settled 标志只在 queue 内
-/// 修改，无需额外锁。
-func waitForLastAssistantText(transcriptPath: String, timeout: TimeInterval) -> String? {
-    if let found = lastAssistantText(fromTranscriptAt: transcriptPath) {
+/// 修改，无需额外锁。`parser` 是 Claude / Codex 专属的同步解析器之一。
+func waitForLastAssistantText(transcriptPath: String, timeout: TimeInterval, parser: @escaping (String) -> String?) -> String? {
+    if let found = parser(transcriptPath) {
         return found
     }
 
@@ -300,7 +432,7 @@ func waitForLastAssistantText(transcriptPath: String, timeout: TimeInterval) -> 
 
     let tryReadAndSignal: () -> Void = {
         if settled { return }
-        if let found = lastAssistantText(fromTranscriptAt: transcriptPath) {
+        if let found = parser(transcriptPath) {
             result = found
             settled = true
             sem.signal()
@@ -325,7 +457,10 @@ if eventRaw == "stop" {
     if (raw ?? "").isEmpty,
        let tp = stringify(value(at: "transcript_path", in: hookJson)),
        !tp.isEmpty {
-        raw = waitForLastAssistantText(transcriptPath: tp, timeout: 5.0)
+        let parser: (String) -> String? = toolRaw == "codex"
+            ? lastCodexAssistantText(fromTranscriptAt:)
+            : lastAssistantText(fromTranscriptAt:)
+        raw = waitForLastAssistantText(transcriptPath: tp, timeout: 5.0, parser: parser)
     }
     if var msg = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !msg.isEmpty {
         // 多行折叠成单空格：UI 第二行只展示开头，让换行白白吃掉显示长度不划算。

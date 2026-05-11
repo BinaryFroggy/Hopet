@@ -11,10 +11,7 @@ public final class PetWindow: NSPanel {
     /// PetStageView / hosting view / Window 必须使用同一组尺寸。
     public static let stageSize = CGSize(width: 380, height: 620)
 
-    public let tool: AITool
-
-    public init(tool: AITool, contentView: NSView, initialOrigin: CGPoint) {
-        self.tool = tool
+    public init(contentView: NSView, initialOrigin: CGPoint) {
         let frame = NSRect(origin: initialOrigin, size: NSSize(width: PetWindow.stageSize.width, height: PetWindow.stageSize.height))
         super.init(
             contentRect: frame,
@@ -30,7 +27,7 @@ public final class PetWindow: NSPanel {
         self.isMovableByWindowBackground = true
         self.hidesOnDeactivate = false
         self.contentView = contentView
-        self.title = "Hopet · \(tool.displayName)"
+        self.title = "Hopet"
         self.titlebarAppearsTransparent = true
     }
 

@@ -1,13 +1,13 @@
 import AppKit
 import SwiftUI
 
-/// 管理两只宠物窗口（Claude / Codex）的可见性、位置与拖拽持久化。
+/// 管理全局唯一宠物窗口的可见性与拖拽。
 @MainActor
 public final class PetWindowController {
     private let registry: SessionRegistry
     private let themes: ThemeStore
     private let inputCoordinator: InputCoordinator
-    private var windows: [AITool: PetWindow] = [:]
+    private var window: PetWindow?
 
     public init(
         registry: SessionRegistry,
@@ -19,23 +19,20 @@ public final class PetWindowController {
         self.inputCoordinator = inputCoordinator
     }
 
-    public func showAll() {
-        for tool in SessionRegistry.activeTools {
-            ensureWindow(for: tool).orderFrontRegardless()
-        }
+    public func show() {
+        ensureWindow().orderFrontRegardless()
     }
 
-    public func toggleAll() {
-        let anyVisible = windows.values.contains { $0.isVisible }
-        if anyVisible {
-            windows.values.forEach { $0.orderOut(nil) }
+    public func toggle() {
+        if let win = window, win.isVisible {
+            win.orderOut(nil)
         } else {
-            showAll()
+            show()
         }
     }
 
-    public func locate(_ tool: AITool) {
-        guard let win = windows[tool] else { return }
+    public func locate() {
+        guard let win = window else { return }
         win.makeKeyAndOrderFront(nil)
         // 简单的"闪烁定位"：alpha 抖动一次。
         win.alphaValue = 0.3
@@ -45,14 +42,13 @@ public final class PetWindowController {
         }
     }
 
-    private func ensureWindow(for tool: AITool) -> PetWindow {
-        if let existing = windows[tool] { return existing }
+    private func ensureWindow() -> PetWindow {
+        if let existing = window { return existing }
 
-        let origin = registry.pets[tool]?.screenPosition ?? .zero
+        let origin = registry.pet.screenPosition
         let stageView = PetStageView(
             registry: registry,
             themes: themes,
-            tool: tool,
             onResolvePermission: { [weak self] sessionId, requestId, decision, reason in
                 self?.inputCoordinator.resolvePermission(
                     sessionId: sessionId,
@@ -68,13 +64,16 @@ public final class PetWindowController {
                     answers: answers,
                     cancel: cancel
                 )
+            },
+            onDismiss: { [weak self] sessionId in
+                self?.inputCoordinator.dismissSession(sessionId)
             }
         )
         let hosting = FirstClickHostingView(rootView: stageView)
         hosting.frame = NSRect(origin: .zero, size: PetWindow.stageSize)
 
-        let win = PetWindow(tool: tool, contentView: hosting, initialOrigin: origin)
-        windows[tool] = win
+        let win = PetWindow(contentView: hosting, initialOrigin: origin)
+        window = win
         return win
     }
 }

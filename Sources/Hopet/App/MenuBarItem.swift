@@ -34,7 +34,7 @@ public final class MenuBarItem {
     }
 
     @objc private func openPrefs() { router.openPreferences() }
-    @objc private func togglePets() { router.toggleAllPets() }
+    @objc private func togglePets() { router.togglePet() }
     @objc private func quit() { NSApp.terminate(nil) }
 
     private static func loadStatusBarIcon() -> NSImage? {

@@ -9,6 +9,12 @@ public final class HookInstaller {
             .appendingPathComponent(".claude/settings.json")
     }
 
+    private var codexHooksFile: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".codex/hooks.json")
+    }
+
+    /// 仅在 install/uninstall 时用于清理历史 `[notify]` 块；不再作为事件源。
     private var codexConfig: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".codex/config.toml")
@@ -27,8 +33,9 @@ public final class HookInstaller {
             guard let hooks = json["hooks"] as? [String: Any] else { return false }
             return containsHopetMarker(in: hooks)
         case .codex:
-            guard let text = try? String(contentsOf: codexConfig) else { return false }
-            return text.contains(HookScriptTemplates.hopetMarker)
+            guard let json = try? readCodexHooks(),
+                  let hooks = json["hooks"] as? [String: Any] else { return false }
+            return containsHopetMarker(in: hooks)
         case .custom:
             return false
         }
@@ -50,7 +57,7 @@ public final class HookInstaller {
         switch tool {
         case .claudeCode: return try uninstallClaude()
         case .codex:      return try uninstallCodex()
-        case .custom:     return codexConfig
+        case .custom:     return codexHooksFile
         }
     }
 
@@ -129,35 +136,85 @@ public final class HookInstaller {
     }
 
     // MARK: - Codex
+    //
+    // Codex CLI 0.129.0+ 用 `~/.codex/hooks.json` 注册生命周期 hook（需 features.codex_hooks）。
+    // 安装时顺手清掉 config.toml 里 v0.1 留下的 [notify] 块，避免 stop 事件双发触发两次
+    // completed 切换。See devDocs/hooks-and-priority.md.
 
     private func installCodex() throws -> URL {
-        try FileManager.default.createDirectory(at: codexConfig.deletingLastPathComponent(),
+        try FileManager.default.createDirectory(at: codexHooksFile.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
-        try backup(codexConfig)
+        var json = (try? readCodexHooks()) ?? [:]
+        try backup(codexHooksFile)
 
-        let args = HookScriptTemplates.codexNotifyArguments(emitPath: emitPath)
-        let arrayLit = "[" + args.map { "\"\($0)\"" }.joined(separator: ", ") + "]"
-        let block = """
-        # >>> hopet-managed >>>
-        [notify]
-        command = \(arrayLit)
-        # <<< hopet-managed <<<
-        """
+        var hooks = (json["hooks"] as? [String: Any]) ?? [:]
+        let hopetEntries = HookScriptTemplates.codexHooks(emitPath: emitPath)
 
-        var existing = (try? String(contentsOf: codexConfig)) ?? ""
-        existing = stripHopetBlock(existing)
-        if !existing.hasSuffix("\n") && !existing.isEmpty { existing += "\n" }
-        existing += block + "\n"
-        try existing.write(to: codexConfig, atomically: true, encoding: .utf8)
-        return codexConfig
+        for (key, hopetItems) in hopetEntries {
+            var existing = (hooks[key] as? [Any]) ?? []
+            existing = existing.filter { !isHopetEntry($0) }
+            existing.append(contentsOf: hopetItems)
+            hooks[key] = existing
+        }
+        json["hooks"] = hooks
+
+        let data = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: codexHooksFile, options: .atomic)
+
+        // 迁移：剔除 v0.1 在 config.toml 中写的 [notify] 块。
+        stripLegacyCodexNotify()
+
+        return codexHooksFile
     }
 
     private func uninstallCodex() throws -> URL {
-        guard var existing = try? String(contentsOf: codexConfig) else { return codexConfig }
-        try backup(codexConfig)
-        existing = stripHopetBlock(existing)
-        try existing.write(to: codexConfig, atomically: true, encoding: .utf8)
-        return codexConfig
+        // 同时清 hooks.json 中 Hopet 条目与 config.toml 历史 notify 块——卸载语义是
+        // "把 Hopet 之前留下的 codex 接入全部撤掉"，两条路径都要兜底。
+        stripLegacyCodexNotify()
+
+        guard var json = try? readCodexHooks(),
+              var hooks = json["hooks"] as? [String: Any] else {
+            return codexHooksFile
+        }
+        try backup(codexHooksFile)
+        for (key, value) in hooks {
+            guard let arr = value as? [Any] else { continue }
+            let filtered = arr.filter { !isHopetEntry($0) }
+            if filtered.isEmpty {
+                hooks.removeValue(forKey: key)
+            } else {
+                hooks[key] = filtered
+            }
+        }
+        if hooks.isEmpty {
+            json.removeValue(forKey: "hooks")
+        } else {
+            json["hooks"] = hooks
+        }
+        if json.isEmpty {
+            // 整个 hooks.json 只剩 Hopet 时直接删除文件，避免留空对象。
+            try? FileManager.default.removeItem(at: codexHooksFile)
+        } else {
+            let data = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+            try data.write(to: codexHooksFile, options: .atomic)
+        }
+        return codexHooksFile
+    }
+
+    private func readCodexHooks() throws -> [String: Any] {
+        guard let data = try? Data(contentsOf: codexHooksFile), !data.isEmpty else { return [:] }
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+        return json
+    }
+
+    /// 清掉 `~/.codex/config.toml` 中 hopet 历史注入的 `[notify]` 块。文件本身不一定
+    /// 存在（v0.1 没装过 Hopet 的用户），不存在就静默跳过。
+    private func stripLegacyCodexNotify() {
+        guard let existing = try? String(contentsOf: codexConfig) else { return }
+        guard existing.contains(HookScriptTemplates.codexNotifyBlockBegin) else { return }
+        try? backup(codexConfig)
+        let stripped = stripHopetBlock(existing)
+        try? stripped.write(to: codexConfig, atomically: true, encoding: .utf8)
     }
 
     private func stripHopetBlock(_ text: String) -> String {
@@ -165,8 +222,8 @@ public final class HookInstaller {
         var out: [String] = []
         var inside = false
         for line in lines {
-            if line.contains("# >>> hopet-managed >>>") { inside = true; continue }
-            if line.contains("# <<< hopet-managed <<<") { inside = false; continue }
+            if line.contains(HookScriptTemplates.codexNotifyBlockBegin) { inside = true; continue }
+            if line.contains(HookScriptTemplates.codexNotifyBlockEnd) { inside = false; continue }
             if !inside { out.append(line) }
         }
         return out.joined(separator: "\n")

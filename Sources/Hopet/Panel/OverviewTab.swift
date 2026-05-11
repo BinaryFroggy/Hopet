@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 概览：每个 AI 一张像素 PetCard 显示当前聚合状态 + 活跃 session 数；下方是会话列表。
+/// 概览：单张 PetCard 显示全局宠物的聚合状态 + 活跃 session 数；下方是会话列表。
 /// See preferences.md §11.6.
 struct OverviewTab: View {
     @ObservedObject var registry: SessionRegistry
@@ -9,14 +9,11 @@ struct OverviewTab: View {
     var body: some View {
         PreferencesPaneScaffold("Overview") {
             HStack(spacing: 12) {
-                ForEach(SessionRegistry.activeTools, id: \.self) { tool in
-                    PixelPetCard(
-                        tool: tool,
-                        pet: registry.pets[tool] ?? PetInstance(tool: tool),
-                        sessionCount: registry.activeSessions(of: tool).count,
-                        onLocate: { controller.locate(tool) }
-                    )
-                }
+                PixelPetCard(
+                    pet: registry.pet,
+                    sessionCount: registry.sessions.count,
+                    onLocate: { controller.locate() }
+                )
                 Spacer(minLength: 0)
             }
 
@@ -47,13 +44,12 @@ struct OverviewTab: View {
 }
 
 private struct PixelPetCard: View {
-    let tool: AITool
     let pet: PetInstance
     let sessionCount: Int
     let onLocate: () -> Void
 
     var body: some View {
-        PixelCard(tool.displayName.uppercased(), accent: pet.aggregatedState.accentColor, titleTint: PixelPalette.sky) {
+        PixelCard("HOPET", accent: pet.aggregatedState.accentColor, titleTint: PixelPalette.sky) {
             VStack(spacing: 6) {
                 Text(pet.aggregatedState.glyph)
                     .font(.system(size: 26))
@@ -61,7 +57,7 @@ private struct PixelPetCard: View {
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.secondary)
                 Button("Locate", action: onLocate)
-                    .buttonStyle(PixelButtonStyle(tint: .accentColor, prominent: false))
+                    .buttonStyle(PixelButtonStyle(tint: PixelPalette.sky, prominent: false))
             }
             .frame(width: 140, height: 120)
         }

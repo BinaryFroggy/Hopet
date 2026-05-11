@@ -36,4 +36,14 @@ public final class InputCoordinator {
             cancel: cancel
         )
     }
+
+    /// 用户在气泡上手动点关闭：从 registry 移除该会话。
+    /// 不清 transcriptToPrimary 映射——这是"软"消失：如果会话仍活着，下一次
+    /// userPrompt / preToolUse / permission_ask 会通过 EventRouter 的冷启路径
+    /// 重建 session，气泡随即回来；真僵尸会话则永远不再有事件，气泡保持清除。
+    /// cancelPending 兜底处理罕见的"defaultCard 仍残留 pendingQuestion"场景。
+    public func dismissSession(_ sessionId: String) {
+        permissionPrompter.cancelPending(sessionId: sessionId)
+        registry.remove(sessionId)
+    }
 }

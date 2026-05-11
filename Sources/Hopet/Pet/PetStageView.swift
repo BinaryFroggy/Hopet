@@ -9,11 +9,13 @@ import SwiftUI
 public struct PetStageView: View {
     @ObservedObject var registry: SessionRegistry
     @ObservedObject var themes: ThemeStore
-    let tool: AITool
     /// (sessionId, requestId, decision, reason). `reason` 仅在 plan-approval 卡片的 deny 路径上非 nil。
     let onResolvePermission: (String, String, String, String?) -> Void
     /// (sessionId, requestId, answers, cancel)
     let onResolveAskUser: (String, String, [String: String], Bool) -> Void
+    /// 手动关闭：用户点 defaultCard 右上角的 ✕，让用户兜底清掉僵尸气泡。
+    /// 真活会话被误关也会在下一次状态事件冷启时重新出现。
+    let onDismiss: (String) -> Void
 
     @State private var now: Date = Date()
     @State private var scrollMetrics = ScrollMetrics()
@@ -22,8 +24,14 @@ public struct PetStageView: View {
 
     /// default 卡片场景下希望同时可见的条数；第 6 条开始进入滚动区。
     private static let maxVisibleBubbles: Int = 5
-    /// 单个 default 卡片的估算高度（两行文本 + 内外 padding），见 SessionBubbleView.defaultCard。
-    private static let defaultBubbleHeight: CGFloat = 56
+    /// 单个 default 卡片的估算高度。
+    /// SessionBubbleView.defaultCard 的实际度量：
+    ///   padding 8×2 + 第一行 ~16 + spacing 4 + 第二行 9pt × lineLimit(2) ≈ 22
+    ///   = 58；再加 PixelChrome strokeInset+1 = 3×2 = 6 → ≈ 64。
+    /// 历史值 56 只覆盖 1 行回复；2 行回复时 measured 上报前会被估算"卡矮"，
+    /// `.frame(minHeight: viewportHeight, alignment: .bottom)` 把顶部内容压出可视区。
+    /// 取 76 留出额外缓冲（中英文混排实际行高可达 16pt），让初始帧就能完整展示。
+    private static let defaultBubbleHeight: CGFloat = 76
     /// 展开卡片的保守估算高度。pending 刚出现时 ScrollView 仍握着旧的 default 高度，
     /// 必须先用这些 hint 撑开视口，下一轮 GeometryReader 才能量到真实高度。
     private static let permissionBubbleHeight: CGFloat = 260
@@ -55,38 +63,38 @@ public struct PetStageView: View {
     public init(
         registry: SessionRegistry,
         themes: ThemeStore,
-        tool: AITool,
         onResolvePermission: @escaping (String, String, String, String?) -> Void,
-        onResolveAskUser: @escaping (String, String, [String: String], Bool) -> Void
+        onResolveAskUser: @escaping (String, String, [String: String], Bool) -> Void,
+        onDismiss: @escaping (String) -> Void = { _ in }
     ) {
         self.registry = registry
         self.themes = themes
-        self.tool = tool
         self.onResolvePermission = onResolvePermission
         self.onResolveAskUser = onResolveAskUser
+        self.onDismiss = onDismiss
     }
 
     private var pet: PetInstance {
-        registry.pets[tool] ?? PetInstance(tool: tool)
+        registry.pet
     }
 
-    /// 列表里的会话：按 `startedAt` 倒序——最新在数组头，最旧在数组末。
+    /// 列表里的会话（跨所有 AI 工具）：按 `startedAt` 倒序——最新在数组头，最旧在数组末。
     /// VStack 末项（数组末）= 最旧会话 = 紧贴宠物头顶；新会话从顶部插入。
     private var sessions: [Session] {
-        registry.activeSessions(of: tool)
+        registry.activeSessions
             .sorted { $0.startedAt > $1.startedAt }
     }
 
-    /// 少于 5 条普通气泡时视口跟内容等高，否则离海豹头顶会出现一截空白；
-    /// 超过 5 条时 cap 住启用滚动。若存在 pending 展开卡片，临时放大 cap 让卡片完整进入视口。
+    /// 视口高度：完全由 estimate 决定，**不再用 measured 反馈**。
+    /// 旧实现 `min(max(measured, estimated), maxHeight)` 配合 `.frame(minHeight: viewportHeight)`
+    /// 形成 measured ↔ viewport 互相驱动的循环——一旦 estimate 偏小（如 2 行回复 > 1 行估算），
+    /// 一帧内 viewport 仍卡在旧值，content 顶部被 alignment .bottom 推出 ScrollView 可视区，
+    /// 视觉上呈现"气泡比视口高、展示不完整"。
+    /// 改为单向：sessions 形态变 → estimate 重算 → viewport 直接同步；measured 仅给滚动条用。
     private func bubbleViewportHeight(sessions: [Session]) -> CGFloat {
         guard !sessions.isEmpty else { return 0 }
         let estimated = estimatedBubbleContentHeight(sessions: sessions)
-        let measured = scrollMetrics.contentHeight > 0 ? scrollMetrics.contentHeight : estimated
-        let maxHeight = pendingFocusId(in: sessions) == nil
-            ? PetStageView.defaultBubbleAreaMaxHeight
-            : PetStageView.expandedBubbleAreaMaxHeight
-        return min(max(measured, estimated), maxHeight)
+        return min(estimated, PetStageView.expandedBubbleAreaMaxHeight)
     }
 
     private func estimatedBubbleContentHeight(sessions: [Session]) -> CGFloat {
@@ -133,7 +141,8 @@ public struct PetStageView: View {
                                 onResolveAskUser: { answers, cancel in
                                     guard let pa = session.pendingAskUser else { return }
                                     onResolveAskUser(session.id, pa.requestId, answers, cancel)
-                                }
+                                },
+                                onDismiss: { onDismiss(session.id) }
                             )
                             .id(session.id)
                             .transition(.asymmetric(
@@ -195,7 +204,6 @@ public struct PetStageView: View {
             }
 
             PetBadgeView(
-                tool: tool,
                 state: pet.aggregatedState,
                 theme: themes.activeTheme
             )

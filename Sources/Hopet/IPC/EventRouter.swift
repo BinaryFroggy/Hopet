@@ -6,6 +6,10 @@ import Foundation
 public final class EventRouter {
     private unowned let registry: SessionRegistry
     private let permissionPrompter: PermissionPrompter
+    /// Listener 软开关闭包。返回 false 时 EventRouter 静默丢弃来自该工具的事件，
+    /// hook 文件保持安装态——用户在 Hooks Tab 关 toggle 即关静音，开 toggle 即恢复。
+    /// 由 SceneRouter 注入，读取 ConfigStore.current.listeners。
+    private let isToolListening: (AITool) -> Bool
 
     // 子 agent 识别（v0.x，因 Claude Code 还未稳定暴露 agent_id/parent_session_id）：
     // 用 transcript_path 做"一个 chat panel 一个气泡"的归并 ——
@@ -15,9 +19,14 @@ public final class EventRouter {
     private var transcriptToPrimary: [String: String] = [:]
     private var sessionToTranscript: [String: String] = [:]
 
-    public init(registry: SessionRegistry, permissionPrompter: PermissionPrompter) {
+    public init(
+        registry: SessionRegistry,
+        permissionPrompter: PermissionPrompter,
+        isToolListening: @escaping (AITool) -> Bool = { _ in true }
+    ) {
         self.registry = registry
         self.permissionPrompter = permissionPrompter
+        self.isToolListening = isToolListening
     }
 
     private func transcriptPath(of event: StateEvent) -> String? {
@@ -51,10 +60,23 @@ public final class EventRouter {
         }
     }
 
+    /// 外部（SceneRouter 的 listener 静音清扫）移除 session 后回调，清掉与之关联的
+    /// transcript 缓存。listener toggle 回开后，残留的 transcriptToPrimary 会把
+    /// 后来发起的子 agent 同步请求重路由到已死的 sid，必须随 session 一起清。
+    public func purgeTranscriptMaps(for sessionId: String) {
+        cleanupMaps(removedSessionId: sessionId)
+    }
+
     /// 直接喂入 StateEvent。
     public func handle(_ event: StateEvent) {
         let sid = event.sessionId.hopetShortId
         let evt = event.event.rawValue
+        // Listener 软开关：用户在 Hooks Tab 关闭该工具的 toggle 时直接丢弃事件。
+        // hook 仍在 ~/.claude/settings.json / ~/.codex/hooks.json 中注册，仅做静音。
+        if !isToolListening(event.tool) {
+            HopetLog.trace("skip", "reason=listener-off sid=\(sid) evt=\(evt) tool=\(event.tool.rawValue)")
+            return
+        }
         // 子 agent（Task 工具触发的子上下文）不进 registry，不显示气泡。
         // 一个用户会话只有一个气泡，子 agent 的活动通过父 session 的状态体现。
         if isSubagentEvent(event) {
@@ -95,6 +117,14 @@ public final class EventRouter {
     public func handleRaw(_ data: Data, channel: SocketServer.ClientChannel) {
         do {
             let raw = try Self.decoder.decode(StateEvent.self, from: data)
+            // Listener 软开关：toggle off 时直接释放连接，让 hopet-emit 收 EOF 并输出 `{}`，
+            // Claude/Codex 因此走自家内置 UI（permission/askUser 不至于丢失），气泡完全沉默。
+            if !isToolListening(raw.tool) {
+                HopetLog.trace("skip-raw",
+                    "reason=listener-off tool=\(raw.tool.rawValue) evt=\(raw.event.rawValue) sid=\(raw.sessionId.hopetShortId)")
+                channel.reply(nil)
+                return
+            }
             // AskUserQuestion 在 hook 协议里是 permission_ask + tool_name="AskUserQuestion"。
             // 在 router 入口归一为 .askUser，下游（状态机、enqueue 分支）只看 EventKind。
             let isAskUser = raw.event == .permissionAsk && isAskUserQuestion(raw)
@@ -302,10 +332,9 @@ public final class EventRouter {
         }
     }
 
-    /// 匹配领头的成对 XML 风格上下文块：`<tag ...>...</tag>`，跨行非贪婪。
-    /// Claude Code 在 IDE 下会把 `<ide_opened_file>` / `<ide_selection>` /
-    /// `<system-reminder>` / `<command-name>` 等块塞到 prompt 头部，气泡标题
-    /// 不该把它们当成用户输入。
+    /// 匹配 prompt 头部的成对上下文块（`<ide_selection>` / `<system-reminder>` 等）。
+    /// 与 `Sources/hopet-emit/main.swift` 中同名工具是一份手工副本——AGENTS.md §2.1
+    /// 禁止 hopet-emit 反向依赖主 App 符号，两份需要同步修改。
     private static let leadingContextTagRegex: NSRegularExpression = {
         let pattern = "\\A\\s*<([A-Za-z][A-Za-z0-9_-]*)(?:\\s[^>]*)?>[\\s\\S]*?</\\1>\\s*"
         return try! NSRegularExpression(pattern: pattern)

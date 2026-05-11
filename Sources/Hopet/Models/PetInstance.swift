@@ -1,10 +1,9 @@
 import Foundation
 import CoreGraphics
 
-/// 一只宠物的渲染实例。1:1 绑定一个 AITool。
+/// 全局唯一的宠物渲染实例。状态由所有活跃 session 聚合得出，不再按 AI 工具分组。
 public struct PetInstance: Identifiable, Sendable, Equatable {
     public let id: UUID
-    public let tool: AITool
     public var themeId: String
     public var screenPosition: CGPoint
     public var visible: Bool
@@ -13,7 +12,6 @@ public struct PetInstance: Identifiable, Sendable, Equatable {
 
     public init(
         id: UUID = UUID(),
-        tool: AITool,
         themeId: String = "hopi.default",
         screenPosition: CGPoint = .zero,
         visible: Bool = true,
@@ -21,7 +19,6 @@ public struct PetInstance: Identifiable, Sendable, Equatable {
         drivenBySessionId: String? = nil
     ) {
         self.id = id
-        self.tool = tool
         self.themeId = themeId
         self.screenPosition = screenPosition
         self.visible = visible
