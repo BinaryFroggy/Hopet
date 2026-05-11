@@ -26,13 +26,36 @@ public struct HopetConfig: Codable, Equatable, Sendable {
         case light, dark, system
     }
 
+    /// Listener 软开关（折中静音）。toggle 不动 hook 文件——hooks 启动时已落盘，
+    /// off 只让 EventRouter 静默丢事件、SceneRouter 清掉无待决策的气泡；带 pending
+    /// 的气泡保留到用户落决策后再清。彻底卸载走 Hooks Tab（v0.3 计划）。
+    /// See preferences.md §11.6.
     public struct Listeners: Codable, Equatable, Sendable {
         public var claudeCode: Bool
         public var codex: Bool
 
-        public init(claudeCode: Bool = true, codex: Bool = false) {
+        public init(claudeCode: Bool = true, codex: Bool = true) {
             self.claudeCode = claudeCode
             self.codex = codex
+        }
+
+        /// `.custom` 默认视为开启：与 EventRouter 兜底一致——v0.1 不识别的工具
+        /// 不挂软静音，避免因未来扩展工具静默丢事件。Hooks Tab 没有它的 toggle。
+        public subscript(tool: AITool) -> Bool {
+            get {
+                switch tool {
+                case .claudeCode: return claudeCode
+                case .codex:      return codex
+                case .custom:     return true
+                }
+            }
+            set {
+                switch tool {
+                case .claudeCode: claudeCode = newValue
+                case .codex:      codex = newValue
+                case .custom:     break
+                }
+            }
         }
     }
 }

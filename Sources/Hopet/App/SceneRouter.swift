@@ -39,7 +39,13 @@ public final class SceneRouter {
         self.thinkingTimer = ThinkingTimer(registry: registry)
         self.decayTimer = CompletedDecayTimer(registry: registry)
         self.permissionPrompter = prompter
-        self.router = EventRouter(registry: registry, permissionPrompter: prompter)
+        self.router = EventRouter(
+            registry: registry,
+            permissionPrompter: prompter,
+            isToolListening: { [weak configStore] tool in
+                configStore?.current.listeners[tool] ?? true
+            }
+        )
 
         self.petWindowController = PetWindowController(
             registry: registry,
@@ -67,19 +73,39 @@ public final class SceneRouter {
             }
 
             applyAppearance(configStore.current.appearance)
-            applyListeners(configStore.current.listeners)
+            ensureHooksInstalled()
             themes.reload()
 
-            // 监听 config 变化：appearance 即时应用，listeners 在 Toggle 翻转时同步装/卸 hooks。
             configStore.$current
                 .map(\.appearance)
                 .removeDuplicates()
                 .sink { [weak self] in self?.applyAppearance($0) }
                 .store(in: &configCancellables)
+
+            // @Published 在 willSet 阶段 emit——sink 拿到的 configStore.current 仍是旧值，
+            // 必须用闭包参数里的新 listeners，否则 toggle off 后 sweep 看到的还是 on。
             configStore.$current
                 .map(\.listeners)
                 .removeDuplicates()
-                .sink { [weak self] in self?.applyListeners($0) }
+                .sink { [weak self] listeners in self?.enforceListenerMute(listeners: listeners) }
+                .store(in: &configCancellables)
+
+            // pending 清空 / 状态切换时再扫一遍，让 toggle off 期间挂起的会话在挂起
+            // 解除瞬间被清掉。.added 不会触发 mute，.removed 会无限递归——都跳过。
+            registry.mutations
+                .compactMap { mut -> Void? in
+                    switch mut {
+                    case .fieldsUpdated, .stateChanged: return ()
+                    case .added, .removed: return nil
+                    }
+                }
+                .sink { [weak self] _ in
+                    guard let self else { return }
+                    let listeners = self.configStore.current.listeners
+                    // 两个 listener 都开着时无人会被静音，跳过 activeSessions 扫描。
+                    guard !listeners.claudeCode || !listeners.codex else { return }
+                    self.enforceListenerMute(listeners: listeners)
+                }
                 .store(in: &configCancellables)
 
             let router = self.router
@@ -122,26 +148,37 @@ public final class SceneRouter {
         }
     }
 
-    /// 仅当 listener 当前安装态与目标不一致时调用 install/uninstall，避免每次启动重写文件。
-    /// Codex 路径失败仅 warn，不影响 Claude 安装与启动（见 preferences.md §6.1）。
-    private func applyListeners(_ listeners: HopetConfig.Listeners) {
-        sync(.claudeCode, desired: listeners.claudeCode)
-        sync(.codex, desired: listeners.codex)
+    /// 启动时确保所有已识别 AI 工具的 hook 都已落盘。已安装则跳过（避免每次启动重写文件与
+    /// 堆积备份）。listener toggle 不再影响这里——toggle 只在 EventRouter 入口做静音。
+    /// 真正卸载 Hopet hook 走 Hooks Tab 的显式入口（v0.3 计划）。
+    private func ensureHooksInstalled() {
+        for tool in AITool.recognized {
+            installIfNeeded(tool)
+        }
     }
 
-    private func sync(_ tool: AITool, desired: Bool) {
-        let installed = hookInstaller.isInstalled(tool)
-        guard installed != desired else { return }
+    private func installIfNeeded(_ tool: AITool) {
+        guard !hookInstaller.isInstalled(tool) else { return }
         do {
-            if desired {
-                try hookInstaller.install(tool)
-                HopetLog.trace("\(tool.displayName) hooks installed.")
-            } else {
-                try hookInstaller.uninstall(tool)
-                HopetLog.trace("\(tool.displayName) hooks uninstalled.")
-            }
+            try hookInstaller.install(tool)
+            HopetLog.trace("\(tool.displayName) hooks installed at boot.")
         } catch {
-            HopetLog.warn("\(tool.displayName) hook sync failed: \(error)")
+            HopetLog.warn("\(tool.displayName) hook install failed: \(error)")
+        }
+    }
+
+    /// 折中静音清扫：扫一遍 registry，把"工具 listener 关闭 + 当前无待决策"的 session
+    /// 整体移除。带 pending 的留着，等用户落决策后 registry.mutations 再次触发本函数
+    /// 把它一并清掉。幂等。`listeners` 须由调用方传入，详见 boot() 里 sink 的注释。
+    private func enforceListenerMute(listeners: HopetConfig.Listeners) {
+        let victims = registry.activeSessions.filter { !listeners[$0.tool] && $0.pendingKind == nil }
+        guard !victims.isEmpty else { return }
+        for s in victims {
+            HopetLog.trace("listener-mute",
+                "remove sid=\(s.id.hopetShortId) tool=\(s.tool.rawValue) state=\(s.currentState.rawValue)")
+            permissionPrompter.cancelPending(sessionId: s.id)
+            registry.remove(s.id)
+            router.purgeTranscriptMaps(for: s.id)
         }
     }
 }
