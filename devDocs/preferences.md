@@ -20,11 +20,12 @@
 
 ### §1.2 非目标（v0.2 不做）
 
-- 导入 `.hopettheme` zip 包（保留给 v0.3，含 zip slip 防护）。
+- `.hopettheme` zip 容器分发 + zip slip 解压安全校验（保留给 v0.3）。当前 zip 仅作为"一次性导入容器"用（详见 §5.3.A），不是分发格式。
 - 主题市场 / 远程同步。
-- Codex 监听的真实 install 路径。Codex 在 UI 上以可勾选项呈现，但底层 `HookInstaller.install(.codex)` 仍按现状报 unimplemented；v0.2 将 listener 写入 config，不真正调用 install。
 - 自定义主题的 `accentOverrides`、`glyphs` 自定义。
 - 自定义主题作者元信息编辑、版本号、签名。
+
+> 早先 §1.2 列出的"Codex 监听底层 install 报 unimplemented"已不再适用：Codex CLI 0.129+ 公开了 hook 体系，`HookInstaller.install(.codex)` 现在向 `~/.codex/hooks.json` 真实写入 6 个 hook，listener toggle 与 Claude 同等地软静音（见 §6 / §11.6）。
 
 ---
 
@@ -119,7 +120,7 @@ public struct ThemePackage {
   "activeThemeId": "hopi.default",
   "listeners": {
     "claudeCode": true,
-    "codex": false
+    "codex": true
   }
 }
 ```
@@ -130,7 +131,7 @@ public struct ThemePackage {
 - `appearance`: 仅接受三个枚举字符串；未知值降级 `"system"`。
 - `activeThemeId`: 启动时若指向不存在的主题（用户删除目录后），降级 `"hopi.default"`。
 - `listeners.claudeCode` 默认 `true`；首次创建 config 时即写入 `true`，对应 §1.1「Claude Code 默认勾选」。
-- `listeners.codex` 默认 `false`，留给 v0.3 真实启用。
+- `listeners.codex` 默认 `true`（Codex hooks 已落地，与 Claude 同等启用）。`AITool.custom` 走默认开启，不进 HopetConfig 也不在 Hooks Tab 暴露 toggle——避免因未来扩展工具静默丢事件。
 
 新增 `Sources/Hopet/Core/HopetConfig.swift`：纯 Codable 值类型 + 静态 `load()` / `save()`，错误降级而非抛出。
 
@@ -181,27 +182,47 @@ public struct ThemePackage {
 
 ### §5.3 导入流程（UI 行为）
 
+入口有两条路径，都通向同一个 sheet：
+
+#### §5.3.A 8 槽手填
+
 1. 用户在 ThemesTab 点 "Import Theme…"。
 2. SwiftUI sheet 弹出，包含：
    - 主题名输入框（必填，trim 后非空）。
-   - 8 个 GIF 拖拽 / 选择槽，按 `PetState.allCases` 顺序排列：idle → thinking → responding → toolUse → permissionPrompt → askUser → completed → errorInterrupted。每槽显示状态英文名 + 状态色圆点，便于对照。
+   - 8 个 GIF 拖拽 / 选择槽（`PixelDropSlot`），按 `PetState.allCases` 顺序排列：idle → thinking → responding → toolUse → permissionPrompt → askUser → completed → errorInterrupted。每槽显示状态英文名 + 状态色圆点。
    - 每槽支持：拖拽 GIF 文件落入；点击调起 NSOpenPanel（仅允许 `.gif` UTI）；选中后显示文件名 + 缩略首帧。
 3. "Import" 按钮启用条件：主题名非空 ∧ 8 槽全部选中。任一槽空则按钮禁用，sheet 底部红字列出缺失状态名。
-4. 点击 Import：
-   1. 生成 `id`，创建 `~/.hopet/themes/<id>/`。
-   2. 对 8 个源文件依次调用 `CGImageSourceCreateWithURL` 校验：
-      - 必须能创建 source。
-      - 帧数 ≥ 1。
-      - UTI 必须是 `public.gif`（避免改后缀绕过）。
-   3. 任一校验失败 → 删除半成品目录、报错红字、保留 sheet 内容供修正。
-   4. 全部通过 → 复制 8 个 GIF 到目录，重命名为 `<rawValue>.gif`。
-   5. 写 `manifest.json`。
-   6. 关闭 sheet，触发 `ThemeStore.reload()`，新主题出现在列表。
-   7. **不自动设为 active**；用户在列表里手动点 "Apply"。
-5. 错误 / 边界：
-   - 用户取消 sheet：不创建任何文件。
-   - 同名（slug 相同）多次导入：`uuid8` 保证 id 不冲突，不阻断；ThemesTab 列表会同时显示两条同名主题。文档登记此为已知边角，v0.2 不去重。
-   - 写文件失败（磁盘满 / 权限）：回滚已复制文件并删除目录，保留 sheet。
+
+#### §5.3.B 文件夹 / `.zip` 自动扫描
+
+`Sources/Hopet/Theme/UserThemeImporter.swift` 提供 `DirectoryScan(suggestedName, gifs, missing, issues, tmpDirToCleanUp?)`：
+
+- 用户在 ThemesTab 点 "Import Theme…" 后，可以**整个拖入**一个文件夹或 `.zip` 文件
+- `.zip` 走 `/usr/bin/unzip` 解到 `_staging/<uuid>/` 临时目录；scan 结束后由调用方清理
+- 命名匹配在「忽略大小写、忽略 `-` / `_` / 空格」后比对 `PetState.rawValue`，所以 `idle.gif` / `IDLE.gif` / `Idle.GIF` / `tool-use.gif` / `tool_use.gif` / `Tool Use.gif` 都能识别
+- 一个状态出现多个候选时按字母序取第一个、其余记入 `issues`
+- 不识别 / 非 `.gif` 的文件也记入 `issues`，sheet 底部以折叠列表展示
+- 同时填充 sheet 的主题名（`suggestedName`，来自源文件夹名规整后）与 8 槽
+
+无论手填还是自动扫描，最后都走同一条落盘路径：
+
+#### §5.3.C 落盘
+
+1. 生成 `id = user.<slug>.<uuid8>`，创建 `~/.hopet/themes/<id>/`
+2. 对 8 个源文件依次校验：
+   - UTI 必须是 `public.gif`（避免改后缀绕过）
+   - `CGImageSourceCreateWithURL` 必须成功且帧数 ≥ 1
+3. 任一校验失败 → 删除半成品目录、报错红字、保留 sheet 内容供修正
+4. 全部通过 → 复制 8 个 GIF 到目录，重命名为 `<rawValue>.gif`
+5. 写 `manifest.json`
+6. 关闭 sheet，触发 `ThemeStore.reload()`，新主题出现在列表
+7. **不自动设为 active**；用户在列表里手动点 "Apply"
+
+#### §5.3.D 错误 / 边界
+
+- 用户取消 sheet：不创建任何文件；若来自 zip 解压，调用方清理 `tmpDirToCleanUp`
+- 同名（slug 相同）多次导入：`uuid8` 保证 id 不冲突，不阻断；ThemesTab 列表会同时显示两条同名主题。文档登记此为已知边角，v0.2 不去重
+- 写文件失败（磁盘满 / 权限）：回滚已复制文件并删除目录，保留 sheet
 
 ### §5.4 删除自定义主题
 
@@ -301,36 +322,36 @@ struct FrameAnimationView: View {
 
 ## §7 受影响的代码点
 
-实施期参照本表分阶段提交（每阶段独立 commit，subject 形如 `feat(panel): ...`，遵循 AGENTS.md §4）：
+下表反映本规范在代码层的落地状态。`§5.3.B` 文件夹 / `.zip` 自动扫描属于 working tree 内的活跃增强；其余阶段 A–D 均已落地。
 
-| 文件 | 性质 | 说明 |
+| 文件 | 性质 | 状态 |
 |---|---|---|
-| `Sources/Hopet/Core/HopetConfig.swift` | 新增 | Codable 值类型 + load/save |
-| `Sources/Hopet/Core/ConfigStore.swift` | 新增 | @MainActor ObservableObject 包裹 |
-| `Sources/Hopet/Theme/PixelChrome.swift` | 新增 | 把 `SessionBubbleView` 内 `private` 的 `PixelChrome` / `PixelRoundedRectangle` / `PixelButtonStyle` 提升为 `internal`，再补面板专用部件（见 §11.2） |
-| `Sources/Hopet/Pet/SessionBubbleView.swift` | 修改 | 删除内部 private 像素部件实现，改为 `import` 自 `Theme/PixelChrome.swift`；外观行为零变化 |
-| `Sources/Hopet/Theme/ThemePackage.swift` | 修改 | `FrameAnimation` 改 enum；`ThemePackage` 加 `isUserProvided` / `sourceDirectory` |
-| `Sources/Hopet/Theme/DefaultTheme.swift` | 修改 | 调整 enum case 构造，行为等价 |
-| `Sources/Hopet/Theme/ThemeStore.swift` | 修改 | 注入 `ConfigStore`；新增 `reload()`；`activeThemeId` 持久化（didSet → ConfigStore） |
-| `Sources/Hopet/Theme/UserThemeImporter.swift` | 新增 | sheet 提交后的校验、落盘、回滚 |
-| `Sources/Hopet/Pet/FrameAnimationView.swift` | 修改 | 拆为外层 dispatcher；保留现有 PNG 渲染逻辑为私有 `BundleFrameRenderer` |
-| `Sources/Hopet/Pet/GIFAnimationView.swift` | 新增 | ImageIO 解码 + GIFFrameCache |
-| `Sources/Hopet/Panel/PreferencesView.swift` | 修改 | 注册新 `AppearanceTab`，调整 TabView 顺序 |
-| `Sources/Hopet/Panel/ThemesTab.swift` | 修改 | "Import Theme…" 按钮、导入 sheet、Delete 按钮、预览首帧 |
-| `Sources/Hopet/Panel/AppearanceTab.swift` | 新增 | 三选一 Picker |
-| `Sources/Hopet/Panel/HooksTab.swift` | 修改 | Toggle 列表替换 Install/Uninstall 按钮；Codex 占位 |
-| `Sources/Hopet/App/SceneRouter.swift` | 修改 | boot() 接入 ConfigStore；订阅 appearance 变化 |
-| `Sources/Hopet/App/AppDelegate.swift` | 修改（如需） | 把 ConfigStore 注入到 PreferencesView 构造 |
-| `test/HopetConfigTests.swift` | 新增 | 编解码、未知 version 降级、缺字段降级 |
-| `test/UserThemeImporterTests.swift` | 新增 | 缺帧拒绝、坏 GIF 拒绝、id slug 规整、重名碰撞 |
-
-实施分阶段建议：
-
-- **阶段 A**：`HopetConfig` + `ConfigStore` + `SceneRouter` 接入（最小风险，不改 UI）。
-- **阶段 A'（与 A 并行可做）**：把 `SessionBubbleView` 内 private 的像素部件提升到 `Theme/PixelChrome.swift`，作为 §11 基建。提升前后宠物气泡视觉应像素级一致（截图对比）。
-- **阶段 B**：`AppearanceTab`（用户最易直观验证；同步使用 §11 部件）。
-- **阶段 C**：`HooksTab` 改 Toggle（行为收敛但不引入新格式；用 §11 `PixelToggle` 渲染）。
-- **阶段 D**：`FrameAnimation` enum 化 + `GIFAnimationView` + `UserThemeImporter` + `ThemesTab` 增强（最大块，依赖前三阶段稳定；导入 sheet 用 §11 `PixelDropSlot`）。
+| `Sources/Hopet/Core/HopetConfig.swift` | 新增 | ✅ |
+| `Sources/Hopet/Core/ConfigStore.swift` | 新增 | ✅ |
+| `Sources/Hopet/Theme/PixelChrome.swift` | 新增 | ✅ Pixel 基础部件已从 SessionBubbleView 提升 |
+| `Sources/Hopet/Theme/PixelControls.swift` | 新增 | ✅ PixelTabBar / PixelToggle / PixelSegmentedControl / PixelDropSlot / PixelScrollThumb / PixelGridBackground / PixelCard / PixelToggleRow 等 |
+| `Sources/Hopet/Pet/SessionBubbleView.swift` | 修改 | ✅ 改用提升后的 PixelChrome；权限 / askUser / planApproval / legacyQuestion 卡片实现在此 |
+| `Sources/Hopet/Theme/ThemePackage.swift` | 修改 | ✅ `FrameAnimation` enum + `ThemePackage.isUserProvided` / `sourceDirectory` |
+| `Sources/Hopet/Theme/DefaultTheme.swift` | 修改 | ✅ |
+| `Sources/Hopet/Theme/ThemeStore.swift` | 修改 | ✅ |
+| `Sources/Hopet/Theme/UserThemeImporter.swift` | 新增 | ✅ 8 GIF 校验 / 落盘 / 回滚；§5.3.B 的 `DirectoryScan`（文件夹 / zip 自动扫描）属于 working tree 内增强 |
+| `Sources/Hopet/Theme/UserThemeStore.swift` | 新增 | ✅ |
+| `Sources/Hopet/Pet/FrameAnimationView.swift` | 修改 | ✅ dispatcher，内含私有 `BundleFrameRenderer` |
+| `Sources/Hopet/Pet/GIFAnimationView.swift` | 新增 | ✅ ImageIO + GIFFrameCache（mtime key） |
+| `Sources/Hopet/Panel/PreferencesView.swift` | 修改 | ✅ 自绘 `PixelTabBar` 替代 SwiftUI `TabView` |
+| `Sources/Hopet/Panel/PreferencesPaneScaffold.swift` | 新增 | ✅ |
+| `Sources/Hopet/Panel/ThemesTab.swift` | 修改 | ✅ Import / Apply / Delete |
+| `Sources/Hopet/Panel/AppearanceTab.swift` | 新增 | ✅ |
+| `Sources/Hopet/Panel/HooksTab.swift` | 修改 | ✅ `PixelToggle` 列表 + Doctor；Codex 现在真实 install 到 `~/.codex/hooks.json` |
+| `Sources/Hopet/Panel/BindingsTab.swift` | 修改 | ✅ 全局主题 `Picker(.menu)` |
+| `Sources/Hopet/Panel/OverviewTab.swift` | 修改 | ✅ |
+| `Sources/Hopet/Panel/BehaviorTab.swift` | 新增 | ✅ 骨架（占位 Toggle / Segmented，未联通运行时行为） |
+| `Sources/Hopet/Panel/NotificationsTab.swift` | 新增 | ✅ 骨架（未注册 UserNotifications） |
+| `Sources/Hopet/Panel/AboutTab.swift` | 新增 | ✅ |
+| `Sources/Hopet/App/SceneRouter.swift` | 修改 | ✅ boot 接入 ConfigStore，订阅 appearance 变化 |
+| `Sources/Hopet/App/AppDelegate.swift` | 修改 | ✅ |
+| `test/HopetConfigTests.swift` | 计划 | ⛔ 未实现 |
+| `test/UserThemeImporterTests.swift` | 计划 | ⛔ 未实现 |
 
 ---
 

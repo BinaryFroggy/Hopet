@@ -31,27 +31,34 @@
 
 | 模块 | v0.1 | v0.2 | v0.3 |
 | --- | --- | --- | --- |
-| 状态感知动画（Claude Code，全部 8 态） | ✅ 含 ask-user（通过 AskUserQuestion tool 路由） | ✅ | ✅ |
-| 状态感知动画（Codex） | ⚠️ 实验性"完成通知"（基于 `notify`） | ✅ 完整生命周期 | ✅ |
-| 刘海屏 Dynamic Notch | ✅ | ✅ | ✅ |
-| 顶部悬浮条降级（无刘海） | ✅ | ✅ | ✅ |
-| 桌面宠物（**每个 AI 工具一只**） | ✅ Claude / Codex 各 1 | ✅ | ✅ |
-| 会话气泡（环绕宠物，每气泡 = 1 个活跃 session） | ✅ 显示 cwd 末层 / 标题 / 距上次状态变更耗时 | ✅ + 拖拽重排 | ✅ |
+| 状态感知动画（Claude Code，idle / responding / thinking / tool-use / permission-prompt / ask-user / completed） | ✅ 含 ask-user（通过 AskUserQuestion tool 路由） | ✅ | ✅ |
+| 状态感知动画（Codex CLI 0.129+，无 ask-user 和 error-interrupted） | ✅ 6 hook 完整生命周期（`~/.codex/hooks.json`） | ✅ | ✅ |
+| `error-interrupted` 状态有事件源 | ⛔ 枚举值保留，但 `PostToolUseFailure` 太常态已停用；见 [hooks-and-priority.md §1.1 注 2](./hooks-and-priority.md#11-实际订阅的-claude-code-hook) | 视未来真"会话级错误"事件出现而定 | TBD |
+| 刘海屏 Dynamic Notch | ✅ 三态：collapsed / expanded / fullBubble | ✅ | ✅ |
+| 顶部悬浮条降级（无刘海机型，`notch.fallbackBarEnabled`） | ✅ | ✅ | ✅ |
+| 桌面宠物（**全局唯一**，聚合所有 AI 工具、所有 session） | ✅ | ✅ | ✅ |
+| 会话气泡（**竖栈贴宠物头顶 + ScrollView 滚动**，每气泡 = 1 个活跃 session） | ✅ 显示 cwd 末层 / 标题 / 最近回复摘要 / 状态徽章 / 状态时长 | ✅ | ✅ |
 | 状态聚合（多 session → 单宠物按优先级） | ✅ 详见 [hooks-and-priority.md](./hooks-and-priority.md) | ✅ | ✅ |
-| 点击宠物本体 → 启动新会话 | ⛔ 见 [architecture.md §12.5](./architecture.md#125-关于在气泡里自由输入消息v01-不做的功能) | TBD | TBD |
-| 气泡上 PermissionRequest 决策（Allow / Deny / 交给终端） | ✅ hook socket 同步回包，跨所有宿主 | ✅ | ✅ |
-| AskUserQuestion 触发 → 该气泡自动展开为答题卡，原位回答 | ✅ hook 回包 `updatedInput.answers`，跨所有宿主 | ✅ | ✅ |
+| Subagent 同步类 hook 重路由到主 session | ✅ `EventRouter` 通过 `transcript_path` 找主 session，子 agent 不创建气泡 | ✅ | ✅ |
+| 点击宠物本体 → 启动新会话 | ⛔ 已明确不做（详见 [architecture.md §12.5](./architecture.md#125-关于在气泡里自由输入消息v01-不做的功能)） | TBD | TBD |
+| 气泡上 PermissionRequest 决策（Allow / Deny / Ask） | ✅ hook socket 同步回包，跨所有宿主 | ✅ | ✅ |
+| AskUserQuestion 自动展开答题（选项 + 自定义文本 + multiSelect） | ✅ hook 回包 `updatedInput.answers`，跨所有宿主 | ✅ | ✅ |
+| ExitPlanMode plan-approval 卡片（plan markdown + 继续规划反馈） | ✅ | ✅ | ✅ |
 | **气泡里自由打字注入消息**（在 idle / 任意状态 session 上） | ⛔ macOS 无干净通用注入路径，详见 [architecture.md §12.5](./architecture.md#125-关于在气泡里自由输入消息v01-不做的功能) | 评估 PTY wrapper / IDE 扩展 | TBD |
-| 宠物管理面板 | ✅ 骨架 7 Tab | ✅ 完整 | ✅ |
+| 偏好面板 8 Tab（Overview / Themes / Appearance / Bindings / Hooks / Behavior / Notifs / About） | ✅ 全部实现 | ✅ | ✅ |
 | 主题系统 — 内置 Hopi 主题 | ✅ | ✅ | ✅ |
-| 主题系统 — `.hopettheme` 导入 | ⛔ | ✅ 含 zip slip 防护 | ✅ |
-| 主题 ↔ AI 工具绑定 | ⚠️ 全局单一主题（不分 AI） | ✅ 按 AI 绑定 | ✅ |
+| 主题系统 — 用户自定义主题（8 个 GIF + manifest，文件夹 / `.zip` 自动扫描） | ✅ | ✅ | ✅ |
+| 主题系统 — `.hopettheme` zip 分发 | ⛔ | ⛔ | ✅ 含 zip slip 防护 |
+| 主题切换（全局单一） | ✅ `HopetConfig.activeThemeId` | ✅ | ✅ |
 | Hook 安装向导 + Doctor | ✅ | ✅ | ✅ |
+| Listener 软静音 toggle（不动 hook 文件，运行时丢事件） | ✅ | ✅ | ✅ |
+| 通知中心横幅 | ⚠️ NotificationsTab 仅有 Toggle 占位，未真正注册 UserNotifications | ✅ 联通 | ✅ + 主题声音 |
+| Onboarding 向导 + 权限引导 | ⛔ | ✅ | ✅ |
+| 快捷键录制 / 全局快捷键 | ⛔ | TBD | ✅ |
 | `hopet` CLI | ⛔ | ✅ | ✅ |
-| 声音 / 通知 | ✅ 通知（无声音） | ✅ + 主题声音 | ✅ |
 | 自动更新（Sparkle + EdDSA） | ⛔ | ✅ | ✅ |
 
-> 标注约定：`✅` = 必须交付；`⚠️` = 实验性 / 受限；`⛔` = 本期明确不交付（已与 architecture.md §1.2 / §13 对齐）。
+> 标注约定：`✅` = 已交付；`⚠️` = 实现中 / 受限；`⛔` = 本期明确不交付（已与 architecture.md §1.2 / §13 对齐）。
 
 ### 2.2 非功能需求
 
@@ -71,20 +78,20 @@
 
 | 优先级 | PetState | 触发事件 | 宠物动画（Hopi） | 刘海条文案 | 通知 | v0.1 |
 | --- | --- | --- | --- | --- | --- | --- |
-| **P0** | `ask-user` | Claude `PreToolUse` hook 且 `tool_name == AskUserQuestion`；`PostToolUse` 同条件触发 `ask_user_resolved` 切回 responding | 歪头 + 双鳍捧问号牌 | 「❓ 在等你回答」黄色 | ✅ 横幅 | ✅ + 该 session 气泡自动展开为对话气泡 |
-| **P1** | `permission-prompt` | Claude `PermissionRequest` hook（主路径）；或 `Notification` 且 `notification_type == permission_prompt`（兼容回退） | 警觉抬身瞪眼 + 红色感叹号闪烁 | 「⚠️ 需要权限确认」红色 | ✅ 横幅 | ✅ |
-| **P2** | `error-interrupted` | Claude `PostToolUseFailure` / `StopFailure` hook；Codex `notify` 带 `status=error` | 瘫软成一块麻薯 + 小闪电 | 「已中断」灰色 | 可配置 | ✅ |
-| **P3** | `tool-use` | Claude `PreToolUse` hook（`tool_name != AskUserQuestion`） | 戴圆眼镜翻书/工具 icon 漂浮在鳍旁 | 「执行 Bash / Edit …」（≥ 30s 追加 elapsed timer） | — | ✅ |
-| **P4** | `thinking` | responding 持续 ≥ 8s（Core 定时器主动判定） | 前鳍托腮，头顶省略号气泡闪烁 | 「深度思考中…」 | — | ✅ |
-| **P5** | `responding` | Claude `UserPromptSubmit` hook | 两只前鳍交替拍小键盘 | 「正在回复…」+ 滚动光点 | — | ✅ |
-| **P6** | `completed` | Claude `Stop` hook；Codex `notify` | 开心拍鳍 + 小跳（非循环，1s） | 「完成 ✓」 | 可配置 | ✅ |
-| **P7** | `idle` | 无活跃 session / completed 后 2s | 趴坐眨眼，身体随呼吸起伏，偶尔轻拍短尾鳍 | 「Claude — Idle」 | — | ✅ |
+| **P0** | `ask-user` | Claude `PreToolUse` hook（`tool_name == AskUserQuestion`，fire-and-forget 让 UI 提前展示）+ `PermissionRequest` hook（同一调用，带 `requestId`，挂起等用户作答） | 歪头 + 双鳍捧问号牌 | `❓ Waiting for your answer` | ⛔ 横幅占位 | ✅ + 该 session 气泡自动展开为对话气泡 |
+| **P1** | `permission-prompt` | Claude `PermissionRequest` hook（Notification 兼容回退已删除，避免双发） | 警觉抬身瞪眼 + 红色感叹号闪烁 | `⚠️ Permission needed` | ⛔ 横幅占位 | ✅ |
+| **P2** | `error-interrupted` | **当前无事件源**——`PostToolUseFailure` 在 Claude 上太常态（`grep` / `head` 等命令的非零退出），改为只触发 `cancelPending` 不切状态。枚举值保留 | 瘫软成一块麻薯 + 小闪电 | `Interrupted` | 可配置 | ⛔（枚举可用，但不会被触发）|
+| **P3** | `tool-use` | Claude `PreToolUse` hook（`tool_name != AskUserQuestion`），Codex 同 | 戴圆眼镜翻书 / 工具 icon 漂浮在鳍旁 | `Running tool…` | — | ✅ |
+| **P4** | `thinking` | responding 持续 ≥ 8 s（`ThinkingTimer` 主动判定，无对应 hook） | 前鳍托腮，头顶省略号气泡闪烁 | `Thinking deeply…` | — | ✅ |
+| **P5** | `responding` | Claude `UserPromptSubmit` hook，Codex 同 | 两只前鳍交替拍小键盘 | `Responding…` | — | ✅ |
+| **P6** | `completed` | Claude `Stop` hook，Codex 同 | 开心拍鳍 + 小跳（非循环，1 s） | `Done ✓` | 可配置 | ✅ |
+| **P7** | `idle` | 无活跃 session / completed 后 2 s（`CompletedDecayTimer`） | 趴坐眨眼，身体随呼吸起伏，偶尔轻拍短尾鳍 | `Idle` | — | ✅ |
 
 **聚合规则**：宠物展示的是所有活跃 session（跨所有 AI 工具）中**优先级最高**的那个状态（权威定义见 [hooks-and-priority.md §2](./hooks-and-priority.md#2-petstate-优先级)）。Hopet 全局只有一只宠物，不再随 session 数量或工具数量增加。**leader session 的气泡边框会高亮**，让用户一眼看出当下宠物状态来自哪个 session。
 
-动画切换采用 `AnimationController` 的 `cross-dissolve` 0.2s 过渡；`completed` → `idle` 为 `fade` 过渡。
+动画切换由 SwiftUI 视图层 `withAnimation` 直接承担，没有独立的 `AnimationController`。
 
-**优先级**：同一时刻若有多个候选状态，按 `permission-prompt > ask-user > error-interrupted > tool-use > thinking > responding > completed > idle` 的优先级选择，刘海条始终只显示最高优先级的那一条。
+**优先级**：同一时刻若有多个候选状态，按 `ask-user > permission-prompt > error-interrupted > tool-use > thinking > responding > completed > idle` 的优先级选择，刘海条始终只显示最高优先级的那一条。
 
 ### 3.2 刘海屏 Dynamic Notch
 
@@ -102,7 +109,8 @@ stateDiagram-v2
 | 态 | 尺寸 | 内容 | 触发 |
 | --- | --- | --- | --- |
 | **collapsed** | 与刘海像素对齐的黑色胶囊 | 一个小色点代表最高优先级状态色（绿/橙/红） | 默认态 |
-| **expanded** | 最大 560×44 | AI 名称 + 当前状态文案 + 计时器 | 鼠标靠近 120px 内 或 出现 permission-prompt / ask-user |
+| **expanded** | 最大 560×44 | AI 名称 + 当前状态文案（`PetState.notchCaption`，全英文）+ 计时器 | 鼠标靠近 120 px 内 或 出现 permission-prompt / ask-user |
+| **fullBubble** | 视气泡内容自适应 | 把活跃气泡内容直接嵌进刘海下方（实验态，仅 `NotchView.swift` 内含） | 内部用 |
 
 #### 3.2.2 吸附与动效
 
@@ -147,13 +155,12 @@ Hopet **全局只有一只**宠物，所有 AI 工具（Claude / Codex / 未来�
 
 | 操作 | 反馈 |
 | --- | --- |
-| 鼠标悬停（≥400ms） | 宠物头顶显示小 tooltip：当前 leader session 标题 + 当前聚合状态 |
+| 鼠标悬停 | 视图层尚未做 tooltip（计划项） |
 | 左键单击宠物本体 | v0.1 无操作（曾用于"新开 session"，已移除） |
-| 右键点击宠物 | 弹出 context menu：显示/隐藏宠物、切换主题、关闭所有 session、打开管理面板 |
-| 长按（≥0.2s） | 进入拖拽 |
-| 鼠标悬停某个气泡 | 气泡放大 1.1×、显示完整 cwd 路径 tooltip |
-| **左键单击气泡** | 气泡展开为只读状态卡（标题/cwd/状态/耗时）；Permission/AskUserQuestion 挂起时自动展开为可交互卡片（见 §3.4.1 / §3.4.2） |
-| 右键点击气泡 | 关闭该 session / 打开 cwd / 打开终端窗口 / 复制 sessionId |
+| 右键点击宠物 | 视图层尚未做 context menu（计划项；菜单栏图标作为兜底入口） |
+| 长按（≥ 0.2 s） | 进入拖拽（窗口位置跟随，气泡 ScrollView 同步移动） |
+| **左键单击气泡** | 不做"展开为大卡片"——气泡的展开态完全由 `Session.pendingKind`（Permission / AskUserQuestion / ExitPlanMode）自动驱动，无 pending 时是固定的默认卡片（标题 / cwd / 最近回复 / 状态徽章 / 状态时长） |
+| 气泡右上角 ✕ | 手动 dismiss 这条会话气泡（真活会话被误关时下一次状态事件会冷启重建） |
 
 ---
 
@@ -223,119 +230,124 @@ v0.1 只有两个用户输入入口，都建立在 **Claude 主动开口**（hoo
 
 ### 3.5 会话气泡（Session Bubbles）
 
-宠物周围环绕若干圆形气泡，每个气泡 = 一个活跃 session（跨 AI 工具）。气泡是宠物身份信息的最小载体，提供 cwd / 标题 / 距上次状态变更耗时等关键元信息；来源工具通过气泡上的 chip 区分。
+气泡**竖栈贴宠物头顶 + ScrollView 滚动**，每个气泡 = 一个活跃 session（跨 AI 工具）。气泡是宠物身份信息的最小载体，提供 cwd / 标题 / 最近回复摘要 / 状态徽章 / 状态时长等关键元信息。
+
+> 旧设计是围绕宠物环绕排布，问题是宠物靠近屏幕边缘时气泡越界、Leader 弧线视觉指向无法 hit-test、6+ 气泡时视觉拥挤。竖栈方案让气泡顺序按 `startedAt` 倒序明确（最新在最上）、可滚动、可承载 plan-approval / askUser 这类高大卡片。
 
 #### 3.5.1 默认显示内容
 
-气泡处于折叠态时（默认）显示三行信息：
+默认卡片（无 pending 时）按行展示：
 
 ```
-┌────────────────────┐
-│   📁 Hopet         │   ← cwd 仅显示最后一层目录
-│   ▶ 写架构文档…    │   ← 会话标题（`Session.title` 由首条 prompt 截 32 字符派生，气泡再截 18 字符显示）
-│   ⏱ 12s           │   ← 距上次状态变更的耗时（实时刷新）
-└────────────────────┘
+┌────────────────────────────────────────┐
+│ Title                          [×]     │  ← 会话标题（≤ 40 字符）；无标题时不渲染此行（避免和下行 cwd 重复）
+│ 📁 Hopet · Responding · running 3s     │  ← cwd 最后一层 / 状态徽章 / stateDurationPhrase
+│ "Looking at PetStageView.swift…"       │  ← lastAssistantMessage（Stop hook 抽取的本轮回复开头，≤ 120 字符）
+└────────────────────────────────────────┘
 ```
 
-气泡边框颜色 = 该 session 当前状态色（与 §3.1 表中"动画"列的颜色映射一致）。
+`stateDurationPhrase` 在 running 态显示 `running 5m`，在终态（idle / completed / errorInterrupted）显示 `5m ago`。
+
+气泡边框颜色 = 该 session 当前状态色（leader 加粗，其它常规）。
 
 #### 3.5.2 视觉规格
 
-| 元素 | 规格 |
+| 元素 | 估算值 |
 | --- | --- |
-| 气泡尺寸 | 64×64 px（内圆半径 32 px） |
-| 气泡-宠物间距 | 16 px |
-| 第 N 环轨道半径 | `R_pet + gap + (2N+1) × R_bubble + N × gap` |
-| 单环最多气泡 | 6（超出进入第二环，每外环旋转 30° 错位） |
-| 气泡内文字 | SF Pro Rounded 9pt（cwd / title / elapsed 各一行，省略号截断） |
-| 边框宽度 | 普通 1.5 px / leader 2.5 px |
-| 阴影 | 4 px blur, 30% opacity，模拟悬浮感 |
+| 默认卡片高度 | 76 pt |
+| Permission 决策卡 | 260 pt |
+| Plan-approval 卡（ExitPlanMode） | 430 pt |
+| AskUserQuestion 答题卡 | 390 pt |
+| 旧 fire-and-forget 问询卡（legacyQuestion） | 120 pt |
+| 单可见默认卡数（超出滚动） | 5 |
+| 气泡间距 | 6 pt |
+| 气泡-宠物间距 | 6 pt |
+| 字体 | 系统等宽（monospaced），按 preferences.md §11.4 |
+| 描边 | 硬黑 1.5 pt（普通）/ 2.5 pt（leader） |
+| 阴影 | 块状偏移（不模糊），与气泡 PixelChrome 同语言 |
 
-详细布局算法见 [architecture.md §12.4](./architecture.md#124-会话气泡布局算法)。
+布局算法见 [architecture.md §12.4](./architecture.md#124-会话气泡布局算法)。
 
 #### 3.5.3 Leader 高亮
 
-宠物的聚合状态由"最高优先级 session"驱动（详见 [hooks-and-priority.md §3](./hooks-and-priority.md#3-聚合算法)）。该 session 对应的气泡：
+宠物的聚合状态由"最高优先级 session"驱动（详见 [hooks-and-priority.md §3](./hooks-and-priority.md#3-聚合算法)）。`PetInstance.drivenBySessionId` 对应的气泡：
 
-- 边框加粗（1.5 px → 2.5 px）
-- 边框色 = 当前宠物状态色（与宠物动画状态同步）
-- 一条细弧线连接气泡到宠物头顶（视觉指向，0.5 px 50% 透明）
+- 描边加粗
+- 描边色 = 当前宠物状态色
 
 用户因此能一眼看出"哪个 session 是当下宠物状态的来源"。
 
-#### 3.5.4 Hover 与展开行为
+#### 3.5.4 展开行为（pendingKind 驱动）
 
-| 操作 | 反馈 |
-| --- | --- |
-| 鼠标悬停 ≥ 200ms | 气泡放大 1.1×；显示完整 cwd 路径 tooltip 在气泡下方 |
-| 左键单击 | 气泡展开为 280×80 只读状态卡（标题 / cwd / 状态徽章 / 耗时） |
-| PermissionRequest 挂起 | 气泡**自动**展开为 360×160 决策卡（详见 [§3.4.1](#341-permissionrequest-自动展开)） |
-| AskUserQuestion 触发 | 气泡**自动**展开为 360×220 答题卡（详见 [§3.4.2](#342-askuserquestion-自动展开)） |
-| 右键单击 | context menu：关闭 session / 打开 cwd / 打开终端 / 复制 sessionId |
+气泡的形态完全由 `Session.pendingKind` 决定，无需用户点击：
+
+| pendingKind | 形态 | 触发 |
+| --- | --- | --- |
+| `nil` | 默认卡片 | 无挂起的同步类 hook |
+| `permission` | Permission 决策卡（Allow / Deny / Ask） | `PermissionRequest` hook（详见 [§3.4.1](#341-permissionrequest-自动展开)） |
+| `planApproval` | Plan-approval 卡（plan markdown + 继续规划反馈） | `PermissionRequest` hook 且 `tool_name == ExitPlanMode` |
+| `askUser` | AskUserQuestion 答题卡（选项按钮 + 自定义文本 + multiSelect） | `PermissionRequest` hook 且 `tool_name == AskUserQuestion`（详见 [§3.4.2](#342-askuserquestion-自动展开)） |
+| `legacyQuestion` | 旧 fire-and-forget 问询卡（仅展示问句，无答题入口） | `PreToolUse` 路径上 `tool_name == AskUserQuestion`（让 UI 提前进入答题态；真正的同步答题靠 `PermissionRequest` 路径） |
+
+每个气泡右上角有 ✕ 用于手动 dismiss。
 
 #### 3.5.5 屏幕边缘适应
 
-宠物靠近屏幕边缘时，环绕气泡可能跑到屏幕外。Hopet 自动：
+宠物窗口高度由 `PetWindow.stageSize.height` 限定；气泡 ScrollView 视口上限按窗口可用空间裁剪。宠物靠近屏幕底时 `clamp` 回可见区，气泡仍然贴宠物头顶。
 
-- 优先把屏幕外角度区间收缩到屏幕内（不均匀分布，但保持环形）
-- 极限情况（宠物贴角）退化为半圆环或扇形布局
-- 用户拖动宠物到新位置时，气泡布局过渡 0.3s 平滑重排
+#### 3.5.6 气泡数量
 
-#### 3.5.6 气泡数量上限
-
-- v0.1 单只宠物 ≤ 12 个气泡（两环×6）；超出时第三环开始用更小尺寸（48×48），最多三环 18 个
-- 超过 18 时压缩为"+N more" 气泡，点击展开管理面板的 Sessions 列表
-- 实践中很少同时跑 18 个 Claude session，此限制是兜底
+无硬上限——超出可见区即滚动。实践中很少同时跑超过 5 个活跃 session，多余的靠 ScrollView 兜底。
 
 ---
 
-### 3.6 宠物管理面板
+### 3.6 偏好面板
 
-标准 macOS 偏好窗口（`NSWindow` + `NSToolbar`），含以下 Tab：
+自绘 `PixelTabBar` 顶部分段（不用系统 `TabView`），整体跑在 `PixelGridBackground` 上，与宠物气泡 / 刘海条同语言。详细像素风设计见 [preferences.md §11](./preferences.md)。
+
+Tab 顺序：**Overview · Themes · Appearance · Bindings · Hooks · Behavior · Notifs · About**。
 
 #### 3.6.1 Overview
 
-- 全局宠物卡片：缩略图、聚合状态徽章、活跃 session 数、可见性开关、定位按钮（让宠物闪烁 2s）
-- 下方 Sessions 列表：每个 session 一行（cwd / title / state / elapsed），可关闭某个 session
-- 空状态提示 + "如何开始" 链接（跳到 Hook 安装 Tab）
+- 全局宠物卡片：状态 glyph + 活跃 session 数 + Locate 按钮（让宠物闪烁定位）
+- Sessions 列表：每个 session 一行（工具名 / 标题 / state / badgeLabel / 用时 / `×` 删除按钮）
+- 空状态提示
 
 #### 3.6.2 Themes
 
-- 已安装主题网格：240×240 预览图 + 名称 + 作者 + 版本
-- 选中主题右侧显示详情 + 动画预览（悬停时自动切换 8 种状态动画）
-- 底部按钮：「导入 `.hopettheme`…」「打开主题目录」「卸载」
-- v0.1 只显示默认 "Hopi" 主题
+- 已安装主题列表，每条 `PixelCard` 展示 56×56 预览首帧 + 名称 + 描述 + Apply / Delete 按钮
+- 顶部 "Import Theme…" 按钮：弹出 sheet
+  - 主题名输入框 + 8 个 `PixelDropSlot`（按 `PetState.allCases` 排列）
+  - 或拖入文件夹 / `.zip`，`UserThemeImporter.DirectoryScan` 自动按文件名匹配 PetState 并报告缺失 / 重复 / 不识别的文件
+- 用户主题显示 `[user]` 角标；内置 `hopi.default` 不显示 Delete 按钮
 
-#### 3.6.3 Bindings（AI ↔ 主题）
+#### 3.6.3 Appearance
 
-- 表格：每行一个 AI 工具，右列下拉选择主题
-- v0.1 全局单一主题（所有 AI 共用），表格灰显
-- v0.2 起开放每个 AI 单独绑定
+- 三选一 `PixelSegmentedControl`：Light / Dark / System
+- 实时生效（`NSApp.appearance = NSAppearance(named: ...)`），偏好同步写入 `HopetConfig.appearance`
 
-#### 3.6.4 Hooks
+#### 3.6.4 Bindings（全局主题）
 
-- Claude Code / Codex 的安装状态卡片（Healthy / Not Installed / Broken）
-- 一键「安装」「重新安装」「卸载」按钮
-- 展示诊断日志（`HookDoctor` 输出）
-- 已写入的 settings 片段可折叠预览
+- 单个 `PixelCard`：全局主题 `Picker(.menu)`，写入 `HopetConfig.activeThemeId`
+- v0.x 起宠物全局唯一，主题也只有一个全局值——表格形态的"按 AI 绑定"已废弃；如未来引入按 cwd / session 切主题会单独建模
 
-#### 3.6.5 Behavior
+#### 3.6.5 Hooks
 
-- **开机自启**：登录项（开/关）
-- **刘海条**：刘海条开关 / 降级顶条开关 / 无操作多久后 collapse
-- **无 session 时隐藏宠物**：开/关
-- **动画帧率**：60 / 30 / 省电随系统
-- **Prompt 摘要记录**：开关
+- 每个识别的 AI 工具一张 `PixelCard`：工具名 + `Listening on/off` 状态 + `PixelToggle`（软静音）
+- Toggle 不动 hook 文件——启动时已无条件落盘，off 只让 EventRouter 静默丢事件并清掉无 pending 的气泡
+- 底部 `PixelCard`：Doctor "Run" 按钮 + monospaced ScrollView 显示诊断输出
 
-#### 3.6.6 Notifications
+#### 3.6.6 Behavior
 
-- 分类开关：permission-prompt / ask-user / completed / error-interrupted
-- 声音：无 / 系统默认 / 主题自带（v0.2）
-- 免打扰：自动与 macOS Focus 模式对齐
+四块 `PixelCard`（General / Notch / Terminal / Diagnostics），目前仅为占位骨架——具体偏好项尚未真正联通到运行时行为。
 
-#### 3.6.7 About
+#### 3.6.7 Notifications
 
-- 版本号、构建号、更新通道（v0.2+）、反馈入口、许可证、致谢
+两块 `PixelCard`（Banners 分类 Toggle / Sound 占位说明）。当前只有 UI 占位，未真正注册 UserNotifications（v0.2 才会联通）。
+
+#### 3.6.8 About
+
+居中 `PixelCard`：项目标题 + 版本 + 一句话描述 + feedback Link。
 
 ---
 
@@ -345,40 +357,41 @@ v0.1 只有两个用户输入入口，都建立在 **Claude 主动开口**（hoo
 
 ```mermaid
 flowchart TD
-    Start["App 启动"] --> Scan["扫描 ~/.hopet/themes/*/manifest.json"]
-    Scan --> Parse["ThemeLoader 解析 manifest<br/>懒加载纹理到 SpriteAtlas"]
-    Parse --> Validate{"ThemeValidator 校验"}
-    Validate -->|合法| Cache["写入 ThemeCache"]
-    Validate -->|非法| Skip["跳过并记录 warn 日志"]
-    Cache --> Warm["根据 bindings.json<br/>为每个 AI 预热默认主题"]
-    Warm --> Ready["主题就绪，等待 Session 绑定"]
+    Start["App 启动"] --> Builtin["DefaultTheme.hopi 硬编码构造"]
+    Builtin --> Scan["扫描 ~/.hopet/themes/*/manifest.json"]
+    Scan --> Decode{"manifest.json 解码"}
+    Decode -->|成功| Build["按 PetState.rawValue 收集 8 个 GIF<br/>构造 FrameAnimation.gifFile(url:)"]
+    Decode -->|失败| Skip["跳过并 warn"]
+    Build --> Store["ThemeStore 持有列表"]
+    Store --> Active["activeThemeId 取自 HopetConfig，<br/>缺失时降级 hopi.default"]
 ```
 
-#### 3.7.2 导入 `.hopettheme`
+GIF 渲染走 `GIFAnimationView`：`ImageIO` 解码所有帧，保留 GIF 内嵌可变帧延迟，`TimelineView` 按 `(elapsed % totalDuration)` 二分定位当前帧；帧图缓存 key = `(URL.path, mtime)`，删除 / 重导入主题后 mtime 变化自动失效。
 
-入口：
-- 拖入 App Dock 图标
-- Themes Tab 的「导入」按钮
-- `open` 命令对接 `.hopettheme` UTI（`com.hopet.theme`）
+#### 3.7.2 导入用户主题
 
-流程：
-1. 解压到 `~/.hopet/themes/_staging/<uuid>/`
-2. 校验（见架构文档 9.3）
-3. 显示主题卡片预览 + 「安装」/「取消」
-4. 安装即 move 到 `~/.hopet/themes/<theme.id>/`，失败清理 staging
+详见 [preferences.md §5.3](./preferences.md)。入口：ThemesTab 的 "Import Theme…" 按钮。两种填法：
 
-#### 3.7.3 自定义主题简要指南（完整版见 v0.2 发布的《主题作者指南》）
+- **8 槽手填**：为每个 `PetState` 拖入或选择一个 GIF
+- **文件夹 / .zip 自动扫描**：拖入一整个目录或 `.zip`，`UserThemeImporter.DirectoryScan` 按文件名（忽略大小写、忽略 `-` / `_` / 空格）匹配 PetState
 
-1. 复制内置 `hopi.default` 作为模板
-2. 替换 `sprites/<state>/` 目录下的帧图片（保持 PNG 透明背景、尺寸一致）
-3. 编辑 `manifest.json`：改 id / name / fps / loop
-4. 目录打包为 zip，改扩展名为 `.hopettheme`
-5. 拖入 Hopet 即可测试
+校验：
+1. UTI 必须是 `public.gif`（避免改名 `.gif` 绕过）
+2. `CGImageSourceCreateWithURL` 必须成功且帧数 ≥ 1
+3. 任一校验失败 → 删除半成品目录、报错红字、保留 sheet 供修正
+
+> v0.1 不支持 `.hopettheme` zip 分发（含 zip slip 防护，留 v0.3+）。当前 zip 仅作为"一次性导入容器"用，导入完成立刻解到 `~/.hopet/themes/<id>/` 并丢弃 staging。
+
+#### 3.7.3 自定义主题简要指南
+
+1. 准备 8 个 GIF，按 `PetState.rawValue` 命名：`idle.gif` / `responding.gif` / `thinking.gif` / `tool-use.gif` / `permission-prompt.gif` / `ask-user.gif` / `completed.gif` / `error-interrupted.gif`
+2. 把它们放进一个文件夹或打成 `.zip`
+3. 在 ThemesTab 点 Import Theme…，填主题名，拖入文件夹 / zip
+4. 点 Apply 即生效
 
 **帧规范**：
-- PNG-24 with alpha，建议 256×256 @ 1x / 512×512 @ 2x
-- 每个 state 建议 8–24 帧；loop 动画尾首帧衔接自然
-- 锚点位于人物脚底（0.5, 0.0）
+- 透明背景 GIF；每个 state 建议 8–24 帧；loop 自然衔接
+- 8 个文件**必须齐全**——缺任一帧整个主题非法
 
 ---
 
@@ -448,43 +461,31 @@ flowchart TD
 
 ## 6. 偏好设置项一览
 
-完整键值表（对应 `~/.hopet/config.json`）：
+实际落盘 schema 在 `Sources/Hopet/Core/HopetConfig.swift`，与 [preferences.md §4.3](./preferences.md) 一致。`~/.hopet/config.json` 当前只承载这些键：
 
 | 键 | 类型 | 默认 | 说明 |
 | --- | --- | --- | --- |
-| `general.launchAtLogin` | Bool | false | 登录项 |
-| `general.showInDock` | Bool | false | 是否显示 Dock 图标（默认仅菜单栏） |
-| `notch.enabled` | Bool | true | 刘海条总开关 |
-| `notch.fallbackBarEnabled` | Bool | false | 无刘海机型降级顶条 |
-| `notch.collapseDelayMs` | Int | 4000 | 无操作多久后 collapse |
-| `pet.maxConcurrent` | Int | 2 | 同时显示宠物上限（v0.1 = Claude + Codex 各 1）；架构上不设硬上限，未来 `AITool.custom` 接入会扩展 |
-| `pet.animationFps` | Enum | auto | `60` / `30` / `auto`（跟随省电） |
-| `pet.snapToEdge` | Bool | true | 拖拽松手吸附屏幕边缘 |
-| `pet.clickToOpenBubbleOnIdle` | Bool | true | idle 单击打开气泡 |
-| `bubble.defaultTool` | Enum | claude-code | 菜单栏气泡的默认目标 |
-| `bubble.preferredTerminal` | Enum | Terminal.app | 新开终端类型 |
-| `bubble.defaultCwd` | String | (empty) | 空=跟随前台 Finder；否则用该路径 |
-| `bubble.recordPromptSummary` | Bool | true | 是否保留 256 字符摘要 |
-| `notifications.permissionPrompt` | Bool | true | 权限请求横幅 |
-| `notifications.askUser` | Bool | true | 问询横幅 |
-| `notifications.completed` | Bool | false | 完成通知 |
-| `notifications.error` | Bool | true | 错误通知 |
-| `notifications.soundEnabled` | Bool | false | 声音（v0.2） |
-| `theme.defaultThemeId` | String | `hopi.default` | 默认主题 id |
-| `advanced.logLevel` | Enum | info | `error` / `warn` / `info` / `debug` |
-| `advanced.keepLogsDays` | Int | 3 | 日志保留天数 |
+| `version` | Int | 1 | schema 版本号；未知版本整体降级到默认值并 warn |
+| `appearance` | Enum | `system` | `light` / `dark` / `system`；切换实时生效（`NSApp.appearance`） |
+| `activeThemeId` | String | `hopi.default` | 当前主题 id；启动时若指向不存在主题（用户删目录后）降级到 `hopi.default` 并写回 |
+| `listeners.claudeCode` | Bool | `true` | Claude Code listener 软静音；off 时 EventRouter 静默丢事件、SceneRouter 清掉无 pending 的气泡，hook 文件不动 |
+| `listeners.codex` | Bool | `true` | Codex CLI listener 软静音；与上同义 |
+
+其它过去文档列出的 `general.launchAtLogin` / `notch.enabled` / `pet.maxConcurrent` / `bubble.preferredTerminal` / `notifications.*` / `advanced.logLevel` 等键，BehaviorTab / NotificationsTab 当前只是 UI 占位骨架，**未真正联通到运行时行为，也未写入 config.json**。`notch.fallbackBarEnabled` 仍由 `UserDefaults` 单独承载（不在 HopetConfig 里）。这些项会在 v0.2 真正落地时补入 HopetConfig schema。
 
 ---
 
 ## 7. 快捷键
 
-| 快捷键 | 作用 | 范围 |
-| --- | --- | --- |
-| `⌘⇧H` | 显示/隐藏所有宠物 | 全局 |
-| `⌘,` | 打开偏好面板 | App active 时 |
-| `⌘W` | 关闭当前窗口 | App active 时 |
-| `Esc` | 关闭气泡展开 / 取消拖拽 | 气泡 active |
-| `↩` | 提交 Permission 决策 / AskUserQuestion 答题 | 对应卡片 active |
+> v0.1 未实现快捷键录制与全局快捷键注册——以下表格是规划态。当前的兜底入口是菜单栏图标（左键展开菜单：显示宠物 / 打开偏好 / 退出）。
+
+| 快捷键 | 作用 | 范围 | v0.1 状态 |
+| --- | --- | --- | --- |
+| `⌘⇧H` | 显示/隐藏宠物 | 全局 | ⛔ |
+| `⌘,` | 打开偏好面板 | App active 时 | ⛔ |
+| `⌘W` | 关闭当前窗口 | App active 时 | ⛔ |
+| `Esc` | 关闭气泡展开 / 取消拖拽 | 气泡 active | ⛔ |
+| `↩` | 提交 Permission 决策 / AskUserQuestion 答题 | 对应卡片 active | ⛔（按钮可达） |
 
 ### 7.1 录制与冲突处理
 
@@ -506,22 +507,23 @@ flowchart TD
 
 ## 8. 权限与首次引导
 
-### 8.1 Onboarding 页面（首次启动）
+> v0.1 未实现 Onboarding 向导，以下是 v0.2 的规划态；当前首次启动直接进入主界面，用户需自行打开偏好面板的 Hooks Tab 完成安装。
+
+### 8.1 Onboarding 页面（v0.2 规划）
 
 流程为 5 步向导：
 
 1. **欢迎** — 短动画演示一次完整状态流
 2. **选择默认 AI 工具** — Claude Code / Codex（可多选）
 3. **安装 Hooks** — 一键安装，失败给出手动指引
-4. **授予权限**（按需请求）：
-   - 通知（必选推荐）
+4. **授予权限**（按需请求）：通知（必选推荐）
 5. **完成** — 显示第一只宠物，触发一次 `completed` 动画作为 welcome
 
 ### 8.2 权限缺失时的降级
 
-- 无通知权限：仅宠物动画 + 刘海条，无系统横幅
 - Permission / AskUserQuestion 答题不依赖任何 macOS 权限（hook 通道是协议级）
-- 任一关键权限缺失时，菜单栏图标显示小红点，点击后显示修复入口
+- 通知中心横幅 v0.1 未真正注册（NotificationsTab 仅有 Toggle 占位）
+- 任一关键权限缺失时的菜单栏小红点提示属于 v0.2 规划项
 
 ---
 

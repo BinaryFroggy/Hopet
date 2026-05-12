@@ -18,22 +18,24 @@
 
 | 能力 | v0.1 | v0.2+ |
 | --- | --- | --- |
-| 状态感知动画（idle / responding / thinking / tool-use / permission-prompt / completed / error-interrupted） | ✅ Claude Code 全链路 | — |
-| 状态感知动画（ask-user） | ✅ 通过 Claude 内置 `AskUserQuestion` tool 的 `PreToolUse` / `PostToolUse` hook + `tool_name` 过滤识别 | — |
+| 状态感知动画（idle / responding / thinking / tool-use / permission-prompt / ask-user / completed；error-interrupted 枚举值保留但事件源已停用，见 §7.1 注） | ✅ Claude Code 全链路 + Codex 大部分（除 ask-user / error-interrupted） | — |
 | Claude Code hooks 接入 | ✅ | ✅ |
-| Codex 接入 | ⚠️ 实验性"完成通知"（基于 `notify` 字段） | ✅ 完整生命周期（`hooks.json` 6 hook：SessionStart / UserPromptSubmit / Pre&PostToolUse / PermissionRequest / Stop） |
+| Codex CLI hooks 接入 | ✅ 6 hook（SessionStart / UserPromptSubmit / Pre&PostToolUse / PermissionRequest / Stop），通过 `~/.codex/hooks.json` | ✅ |
 | 刘海屏 Dynamic Notch + 无刘海机型降级顶条 | ✅ | ✅ |
-| 桌面宠物（**全局一只**：聚合所有 AI 工具、所有 session，含拖拽、位置记忆） | ✅ | ✅ |
-| 会话气泡（围绕全局宠物，每个气泡 = 1 个活跃 session） | ✅ 默认显示一层 cwd / 标题 / 距上次状态变更耗时 | ✅ + 拖拽重排 |
+| 桌面宠物（**全局一只**：聚合所有 AI 工具、所有 session） | ✅ | ✅ |
+| 会话气泡（**竖栈贴宠物头顶 + ScrollView 滚动**，每个气泡 = 1 个活跃 session） | ✅ 默认显示 cwd / 标题 / 最近回复 / 状态徽章 / 状态时长 | ✅ |
 | 状态聚合（多会话 → 单宠物按优先级聚合，详见 [hooks-and-priority.md §2](./hooks-and-priority.md#2-petstate-优先级)） | ✅ | ✅ |
-| 点击宠物本体 → 弹出"目录选择 + 输入"对话框 → 新开终端启动 CLI | ⛔ v0.1 不交付（详见 §12.5） | 视用户需求决定 |
-| 点击会话气泡 → 展开**只读**状态卡 / 在 Permission/AskUserQuestion 挂起时展开**可交互**卡片 | ✅ Permission Allow-Deny + AskUserQuestion 结构化答题（hook 同步回包，跨所有宿主）；**不**支持气泡里自由输入消息（详见 §12.5） | 评估 PTY wrapper / IDE 扩展两条路 |
-| AskUserQuestion 触发 → 该 session 气泡自动展开为对话气泡，原位回答 | ✅ 通过 PermissionRequest hook + `updatedInput.answers` | ✅ |
-| 内置默认 Hopi 主题 | ✅ | ✅ |
-| `.hopettheme` 第三方主题导入 | — | ✅ |
-| 主题切换（全局唯一） | ✅ | ✅ |
-| 宠物管理面板（Overview / Themes / Bindings / Hooks / Behavior / Notifications / About） | ✅ 骨架 | ✅ 完整 |
+| 点击宠物本体 → 弹出"目录选择 + 输入"对话框 → 新开终端启动 CLI | ⛔ 已明确不做（详见 §12.5） | 视用户需求决定 |
+| Permission 气泡 Allow / Deny / Ask 决策 | ✅ hook socket 同步回包，跨所有宿主 | ✅ |
+| AskUserQuestion 气泡结构化答题 | ✅ 走 PermissionRequest hook + `updatedInput.answers` | ✅ |
+| ExitPlanMode 气泡 plan-approval（plan markdown + 继续规划反馈） | ✅ | ✅ |
+| 内置默认 Hopi 主题 | ✅ 8 状态 × 21 或 28 帧 | ✅ |
+| 用户自定义主题导入（8 个 GIF + manifest，文件夹 / `.zip` 自动扫描） | ✅ | ✅ |
+| `.hopettheme` zip 分发 + zip slip 防护 | ⛔ | ⛔ v0.3+ |
+| 偏好面板（Overview / Themes / Appearance / Bindings / Hooks / Behavior / Notifs / About） | ✅ 8 Tab 全部实现 | ✅ |
 | Hook 安装向导 + Doctor | ✅ | ✅ |
+| Listener 软静音 toggle（不动 hook 文件，运行时丢事件） | ✅ | ✅ |
+| 通知中心横幅 | ⚠️ Tab 仅有 Toggle 占位，未注册 UserNotifications | ✅ |
 | `hopet` CLI 伴侣 | — | ✅ |
 | Sparkle 自动更新 | — | ✅ |
 
@@ -128,14 +130,14 @@ flowchart TD
 
 | 层 | 技术 | 理由 |
 | --- | --- | --- |
-| App 入口 / 偏好面板 | **SwiftUI** (macOS 14+) | 声明式、组合式 UI，适合偏好面板与管理列表。 |
-| 宠物渲染 | **SpriteKit** + `SKView` | 帧动画原生支持、GPU 加速、轻量。 |
-| 刘海条 / 气泡 | **AppKit** (`NSPanel`, `NSWindow`) + SwiftUI 嵌入 | 需要 `.nonactivatingPanel`、自定义 levels、跨 Space 行为，SwiftUI 场景不够。 |
+| App 入口 / 偏好面板 / 宠物气泡 | **SwiftUI** (macOS 14+) | 声明式、组合式 UI；像素风外观由 `Theme/PixelChrome.swift` / `Theme/PixelControls.swift` 自绘部件统一承载。 |
+| 宠物逐帧渲染 | **SwiftUI `Image` 帧序列 + `TimelineView`** | 内置 Hopi 主题由 `scripts/build-pet-animation.py` 切出 7×N 的 PNG 帧，运行时按 fps 轮播；用户主题用单个 GIF，`GIFAnimationView` 走 `ImageIO`（`CGImageSourceCreateWithURL`）解码，保留 GIF 内嵌可变帧延迟。**不依赖 SpriteKit / SKView**——v0.1 早期评估过 SpriteKit，但帧序列 + 像素风渲染对它的能力包用不上，反而带来 SKScene 生命周期与 NSPanel 透明窗口的 hit-test 复杂度。 |
+| 刘海条 / 宠物窗口 | **AppKit** (`NSPanel`, `NSWindow`) + SwiftUI 嵌入 | 需要 `.nonactivatingPanel`、自定义 levels、跨 Space 行为，SwiftUI 场景不够。 |
 | IPC | **Network.framework** `NWListener` (Unix path) | 苹果推荐、无第三方依赖、内建 TLS（本场景不需要但可选）。 |
-| 并发 | **Swift Concurrency** (async/await, actors) + **Combine** 做状态广播 | 状态机天然适合 actor；UI 订阅用 Combine Publishers。 |
-| 持久化 | `JSONEncoder` + 文件 (`~/.hopet/state/*.json`) | 数据量小，无需 Core Data / SQLite。 |
-| 主题压缩 | `Foundation` 的 `FileManager` + **ZIPFoundation** (SPM) | ZIP 解包。 |
-| 命令行参数（hopet CLI 伴侣，后续版本） | **swift-argument-parser** | 官方标准。 |
+| 并发 | **Swift Concurrency** + **Combine** 做状态广播 | `SessionRegistry` / `PetAggregator` 等核心组件标 `@MainActor`；UI 订阅用 Combine `PassthroughSubject` / `@Published`。 |
+| 持久化 | `JSONEncoder` + 文件 | 仅 `~/.hopet/config.json`（偏好）与 `~/.hopet/themes/<id>/manifest.json`（用户主题元数据）。Session state 不落盘（见 §7.3）。 |
+| 主题压缩 | 系统 `/usr/bin/unzip` (Process) | 用户主题 `.zip` 自动扫描时调用，避免引第三方 SPM 依赖。 |
+| 命令行参数（hopet-emit / 未来 hopet CLI 伴侣） | 自实现的 flag 解析（`Sources/hopet-emit/main.swift`） | 二进制要尽可能小、零依赖（hook 每次触发都会 fork-exec 一次），用不上 swift-argument-parser。 |
 
 ### 4.2 最低系统要求
 
@@ -156,100 +158,121 @@ flowchart TD
 - **已知限制（写入 README 与 8.1 Onboarding）**：未签名版本每次升级后 TCC (Transparency, Consent and Control，macOS 权限数据库) 会遗忘授权，用户需重新勾选 Accessibility / Automation / Notifications。
 - **自动更新**（v0.2+）：Sparkle 2（注意：未签名的 Sparkle 更新流程需要额外配置 EdDSA 签名而非 code signing）。
 
-### 4.4 依赖清单（v0.1）
+### 4.4 依赖清单
 
-| 依赖 | 用途 | 许可 |
-| --- | --- | --- |
-| ZIPFoundation | 主题 `.hopettheme` 解压 | MIT |
-| (可选) Sparkle | 自动更新 | MIT |
-
-保持依赖极简是 v0.1 的硬约束。
+`Package.swift` 的 `dependencies: []` 仍为空。Hopet 与 hopet-emit 都只依赖系统框架（AppKit / SwiftUI / Combine / Network / UserNotifications / ImageIO）。zip 解压走 `/usr/bin/unzip` 子进程，主题预览走 `ImageIO`，不引入 ZIPFoundation 或 Sparkle——零依赖是 v0.1 的硬约束，新增依赖须在 PR 描述中说明理由并经人类同意（见 AGENTS.md §3）。
 
 ---
 
 ## 5. 模块划分
 
-Hopet 按职责划分为 7 个 Swift 模块（以 SPM target 或 Xcode framework 组织）。依赖方向自上而下、单向：
+Hopet 单 SPM target，目录按职责分层（见 AGENTS.md §2.1）。依赖方向自上而下、单向。下表 "实际目录" 列对应 `Sources/Hopet/` 下的子目录名。
 
 ```mermaid
 flowchart LR
-    App["HopetApp"]
-    Panel["HopetPanel"]
-    Notch["HopetNotch"]
-    Pet["HopetPet"]
-    Core["HopetCore"]
-    Theme["HopetThemeKit"]
-    Hook["HopetHookKit"]
-    Foundation["Foundation / AppKit"]
+    App["App/"]
+    Panel["Panel/"]
+    Notch["Notch/"]
+    Pet["Pet/"]
+    Core["Core/"]
+    IPC["IPC/"]
+    Theme["Theme/"]
+    Hook["HookKit/"]
+    Models["Models/"]
 
     App --> Panel
     App --> Notch
     App --> Pet
     App --> Core
+    App --> IPC
     Panel --> Core
+    Panel --> Theme
     Notch --> Core
     Pet --> Core
-    Panel --> Theme
     Pet --> Theme
+    IPC --> Core
     Hook --> Core
-    Theme --> Foundation
+    Core --> Models
+    Theme --> Models
 ```
 
-### 5.1 HopetCore（守护核心）
+### 5.1 Core/（守护核心，纯逻辑）
 
-核心职责：接收 hook 事件、维护会话状态机、广播给 UI。
+- `SessionRegistry` (@MainActor `ObservableObject`) — 所有活跃 Session 的注册表 + 全局唯一 `PetInstance`；通过 `PassthroughSubject<Mutation, Never>` 广播 `added/removed/stateChanged/fieldsUpdated`
+- `SessionStateMachine` (caseless enum) — 纯函数 `nextState(from:event:)`
+- `PetAggregator` — 订阅 `SessionRegistry.mutations`，按优先级聚合多 session → 单宠物（算法见 hooks-and-priority.md §3.2）
+- `ThinkingTimer` — 每 500 ms 扫描，把停留 ≥ 8 s 的 `responding` 升级为 `thinking`
+- `CompletedDecayTimer` — 每秒扫描，`completed` ≥ 2 s 后切回 `idle`；任意状态 `lastActivityAt` 距今 ≥ 10 min 时移除（VS Code Claude 插件等不发 `SessionEnd` 的宿主的兜底）
+- `HopetConfig` (`Codable`) + `ConfigStore` (@MainActor `ObservableObject`) — 用户偏好的事实之源 + 落盘（`~/.hopet/config.json`）
+- `HopetPaths` (caseless enum) — `~/.hopet/{bin,run,themes,logs,config.json}` 的统一计算
+- `HopetLog` (caseless enum) — 结构化日志 + `trace(tag:_:)` 事件流追踪
+
+> Session state 不落盘（无 `PersistentStore`）。重启即丢失所有 Session，等下一条事件冷启重建。
+
+### 5.2 IPC/（事件入口）
 
 - `SocketServer` — 基于 `NWListener` 的 Unix Socket 服务端
-- `EventDecoder` — 长度前缀 JSON 帧解码
-- `SessionRegistry: actor` — 所有活跃 Session 的注册表
-- `SessionStateMachine` — 单个 Session 的状态转换逻辑
-- `StatePublisher` — `PassthroughSubject<StateSnapshot, Never>` 广播器
-- `PersistentStore` — 将 Session 最近状态落盘，重启可恢复
+- `FrameCodec` — 长度前缀 JSON 帧编解码
+- `EventRouter` (@MainActor) — 把 `StateEvent` 路由到 `SessionRegistry`；附带：
+  - 同 `transcript_path` 子 agent → 主 session 重路由
+  - `pruneStaleSiblings`：同 cwd / 同终端宿主 / `lastActivityAt` 距今 > 90 s 的躺尸 session 自动清理
+  - `cancelPending` on `error` / `stop` 等终态事件
 
-### 5.2 HopetPet（宠物渲染）
+### 5.3 Pet/（宠物与气泡渲染）
 
-- `PetWindow: NSPanel` — 置顶、非激活、跨 Space 的宿主窗口
-- `PetScene: SKScene` — SpriteKit 场景，含动画播放机
-- `AnimationController` — 根据状态订阅切换 clip；管理过渡（fade / cross-dissolve）
-- `PetPositionManager` — 多实例避让、屏幕边缘吸附、位置持久化
-- `HitTestProxy` — 透明窗口的精准点击区域（只在宠物像素上响应）
+- `PetWindowController` + 嵌套的 `PetWindow: NSPanel` — 置顶、非激活、跨 Space 的宿主窗口
+- `PetStageView` (SwiftUI) — 一只宠物 + 紧贴它头顶的会话气泡列（**竖栈 + ScrollView**，详见 §12.4）
+- `PetBadgeView` — 宠物本体的占位徽章 / 动画容器
+- `SessionBubbleView` — 单个会话气泡：默认卡 / Permission 决策卡 / AskUserQuestion 答题卡 / ExitPlanMode 卡 / 普通问询卡
+- `FrameAnimationView` — `FrameAnimation` enum 的 dispatcher：`.bundlePNG` 走 `BundleFrameRenderer`（Bundle 内 PNG 帧序列 + `TimelineView`），`.gifFile` 走 `GIFAnimationView`
+- `GIFAnimationView` — `ImageIO` 解码用户主题 GIF，保留可变帧延迟，缓存 key = `(URL.path, mtime)`
+- `InputCoordinator` — 把气泡上的 Allow / Deny / AskUserQuestion 答题序列化成 `PermissionResponse` 写回挂起的 socket
+- `PermissionPrompter` — 旧 fire-and-forget 通知通道的占位（v0.1 起所有 Permission/AskUser 都走同步回包，PermissionPrompter 只剩极少边角分支）
 
-### 5.3 HopetNotch（刘海条）
+> 没有 SpriteKit / SKView / SKTextureAtlas；没有独立的 `AnimationController` / `PetPositionManager` / `HitTestProxy`——SwiftUI + 透明 NSPanel 直接承担。
+
+### 5.4 Notch/（刘海条）
 
 - `NotchDetector` — 通过 `NSScreen.auxiliaryTopLeftArea / safeAreaInsets` 判断机型
-- `NotchWindow: NSPanel` — 吸附在刘海区域的无边框窗口
-- `NotchView: SwiftUI` — 三态：collapsed / expanded / fullBubble
-- `FallbackTopBarWindow` — 无刘海机型降级为顶部细条
-- `BubbleInputController` — 展开 Permission / AskUserQuestion 卡片、收集决策与答案、回写挂起的 hook socket
+- `NotchWindow: NSPanel` — 吸附在刘海区域的无边框窗口；无刘海机型 + `UserDefaults notch.fallbackBarEnabled = true` 时降级为顶部细条（同一个 `NotchWindow`，不再有独立的 `FallbackTopBarWindow` 类）
+- `NotchView` (SwiftUI) — 三态：collapsed / expanded / fullBubble
 
-### 5.4 HopetPanel（管理面板）
+### 5.5 Panel/（偏好面板）
 
-- `PreferencesWindow` — 标准 macOS 偏好窗口（Tabs）
-- `PetListView` — 当前活跃宠物与已配置宠物
-- `BindingEditor` — AI 工具 ↔ 主题映射
-- `ThemeGallery` — 已安装主题缩略图 + 导入入口
-- `HookInstallerView` — 一键安装/卸载 hooks 到用户的 Claude/Codex 配置
+实际 Tab：`Overview · Themes · Appearance · Bindings · Hooks · Behavior · Notifs · About`（顺序见 preferences.md §2）。
 
-### 5.5 HopetThemeKit（主题）
+- `PreferencesWindowController` — 窗口 + SwiftUI HostingController
+- `PreferencesView` — 根视图，自绘 `PixelTabBar` + 内容区
+- `PreferencesPaneScaffold` — 每个 Tab 的统一外壳（标题、内边距、`PixelGridBackground` 透传）
+- `OverviewTab` / `ThemesTab` / `AppearanceTab` / `BindingsTab` / `HooksTab` / `BehaviorTab` / `NotificationsTab` / `AboutTab`
 
-- `ThemeLoader` — 从目录加载 manifest + 资源；支持 `.hopettheme` 解压
-- `ThemeValidator` — 校验 manifest schema、必需动画帧完整性
-- `SpriteAtlasBuilder` — 把 PNG 序列打包为运行时 `SKTextureAtlas`
-- `AnimationCatalog` — 状态 → clip 的映射表
-- `ThemeCache` — 主题对象的内存缓存（LRU，限 3 个同时加载）
+### 5.6 Theme/（主题）
 
-### 5.6 HopetHookKit（Hook 工具）
+- `ThemePackage` (struct) — 运行时主题对象（详见 §6.6）
+- `FrameAnimation` (enum) — `.bundlePNG(directory:framesPerSecond:)` / `.gifFile(url:)`
+- `DefaultTheme` (caseless enum) — 内置 Hopi 主题的硬编码构造，资源指向 `Sources/Hopet/Resources/Themes/Hopi/seal-<state>/*.png`
+- `ThemeStore` (@MainActor `ObservableObject`) — 主题列表 + active 主题 id；启动时扫描 `~/.hopet/themes/*/manifest.json`
+- `UserThemeImporter` (caseless enum) — 校验 8 个 PetState GIF、复制到 `~/.hopet/themes/<id>/`、写 manifest；支持文件夹 / `.zip` 自动扫描
+- `UserThemeStore` — 用户主题元数据缓存
+- `PixelChrome` / `PixelControls` — 像素风 SwiftUI 部件库（`PixelChrome`, `PixelRoundedRectangle`, `PixelButtonStyle`, `PixelPalette`, `PixelToggle`, `PixelSegmentedControl`, `PixelTabBar`, `PixelGridBackground`, `PixelCard`, `PixelDropSlot`, `PixelScrollThumb`）。设计规范见 preferences.md §11
 
-- `HookScriptTemplates` — Claude Code / Codex 的 hook 脚本模板（embedded resources）
-- `HookInstaller` — 写入到 `~/.claude/settings.json` 或 `~/.codex/config.toml` 的对应字段
-- `HookUninstaller` — 逆向清理
+> 没有 `ThemeValidator` / `SpriteAtlasBuilder` / `AnimationCatalog` / `ThemeCache`（LRU）—— 内置主题硬编码、用户主题数量有限，全部常驻内存即可。
+
+### 5.7 HookKit/（Hook 工具）
+
+- `HookScriptTemplates` (caseless enum) — Claude Code / Codex 的 hook 字典（in-process 生成，不再以 embedded resource 提供）
+- `HookInstaller` — 写入 / 反向移除 `~/.claude/settings.json` 与 `~/.codex/hooks.json`；顺手清理 v0.1 在 `~/.codex/config.toml` 留下的 `[notify]` 块；卸载逻辑就在 `HookInstaller` 内（无独立 `HookUninstaller` 类）
 - `HookDoctor` — 诊断 hooks 是否已正确安装与可执行
 
-### 5.7 HopetApp（入口）
+### 5.8 Models/（共享值类型）
 
-- `AppDelegate` — NSApplication 生命周期、登录项注册
-- `MenuBarItem` — `MenuBarExtra` 快捷入口（显示/隐藏宠物、打开面板、退出）
-- `SceneRouter` — 协调各窗口（PetWindow / NotchWindow / Preferences）显示
+`AITool` / `PetState` / `Session` / `SessionBubble` / `PetInstance` / `StateEvent` / `EventKind` / `AnyCodable`。详见 §6。
+
+### 5.9 App/（入口）
+
+- `HopetApp` / `AppDelegate` — NSApplication 生命周期
+- `MenuBarItem` — 菜单栏入口
+- `SceneRouter` — 协调各窗口（PetWindow / NotchWindow / Preferences）启动顺序与 `ConfigStore` / `ThemeStore` 注入
 
 ---
 
@@ -270,19 +293,34 @@ enum AITool: String, Codable, CaseIterable {
 ### 6.2 Session
 
 ```swift
-struct Session: Codable, Identifiable {
-    let id: String              // sessionId (UUID or hook 提供)
-    let tool: AITool
-    let cwd: String             // 会话工作目录（绝对路径）
-    let cwdLastComponent: String // cwd 仅最后一层（如 "Hopet"），用于气泡显示
-    var title: String?          // 会话标题：从首条 prompt 截断 32 字符派生；无 prompt 时使用 cwdLastComponent
-    let terminalApp: String?    // 已知所在终端 bundleId
-    let startedAt: Date
-    var currentState: PetState
-    var stateSince: Date        // 上次状态变更时刻，气泡展示"距今"用
-    var lastPromptSnippet: String? // 最近一条 user prompt 摘要（截断 256 字符，可关闭）
+public struct Session: Codable, Identifiable, Hashable, Sendable {
+    public let id: String                  // sessionId（hook 提供，或 hopet-emit 从 transcript_path 兜底）
+    public let tool: AITool
+    public var cwd: String                 // 会话工作目录（绝对路径）
+    public var title: String?              // 会话标题派生（首条 prompt 截 40 字符）；无标题时回退 cwdLastComponent
+    public var terminalApp: String?        // 已知所在终端 bundleId
+    public var terminalTty: String?        // 已知 tty，用于 pruneStaleSiblings 同宿主识别
+    public var terminalSessionId: String?  // 终端宿主自带的 session id（iTerm2 等）
+    public let startedAt: Date
+    public var currentState: PetState
+    public var stateSince: Date            // 上次状态变更时刻
+    public var lastActivityAt: Date        // 最近一次收到任何事件的时间；用于 10 min 陈旧 session 清理
+    public var lastPromptSnippet: String?  // 最近一条 user prompt 摘要（≤256 字符）
+    public var lastAssistantMessage: String? // Stop hook 抽到的回复开头（≤120 字符），下一次 UserPromptSubmit 清空
+
+    // 同步类 hook 的待决策载荷——三者互斥（pendingKind 按优先级裁剪）：
+    public var pendingQuestion: String?        // 旧 fire-and-forget AskUserQuestion 路径残留，仅展示
+    public var pendingAskUser: PendingAskUser? // 结构化 AskUserQuestion，含 requestId，可同步回写 answers
+    public var pendingPermission: PendingPermission? // PermissionRequest 待决策，含 requestId
+
+    public var cwdLastComponent: String { /* 从 cwd 派生 */ }
+    public var pendingKind: SessionPendingKind? { /* permission > planApproval > askUser > legacyQuestion */ }
 }
 ```
+
+`PendingPermission` 含 `requestId / toolName / command / filePath / plan`；其中 `toolName == "ExitPlanMode"` 时承载已 trim 的 plan markdown，气泡渲染 plan-approval 卡片（与普通 allow/deny 卡片展开高度差近 200 pt，所以 `SessionPendingKind` 把它单独列项）。
+
+`PendingAskUser` 含 `requestId / questions: [AskUserQuestionItem] / originalToolInputJSON: Data`；用户作答后把 `answers = { 问题: 答案 }` 合进 `originalToolInputJSON` 作为 `updatedInput` 同步回写，Claude 把它当作 AskUserQuestion 工具的结果。
 
 ### 6.3 PetState
 
@@ -302,29 +340,45 @@ enum PetState: String, Codable {
 ### 6.4 StateEvent（IPC payload）
 
 ```swift
-struct StateEvent: Codable {
-    let schema: Int            // 协议版本，当前 1
-    let sessionId: String
-    let tool: AITool
-    let event: EventKind
-    let timestamp: Date
-    let cwd: String?
-    let terminalApp: String?
-    let payload: [String: AnyCodable]?
+public struct StateEvent: Codable, Sendable {
+    public let schema: Int                  // 协议版本，当前 1
+    public let sessionId: String
+    public let tool: AITool
+    public let event: EventKind
+    public let timestamp: Date
+    public let cwd: String?
+    public let terminalApp: String?
+    public let terminalTty: String?
+    public let terminalSessionId: String?
+    public let payload: [String: AnyCodable]?
+    public let requestId: String?           // 仅同步类 hook（permission_ask / ask_user 经 PermissionRequest）需要，用于反向回写
+    public let isSubagent: Bool?            // hopet-emit 识别 parent_session_id / agent_id 等标记后设置；EventRouter 会重路由到主 session
 }
 
-enum EventKind: String, Codable {
-    case sessionStart     = "session_start"
-    case sessionEnd       = "session_end"        // SessionEnd hook，用于淘汰会话气泡
-    case userPrompt       = "user_prompt"
-    case preToolUse       = "pre_tool_use"
-    case postToolUse      = "post_tool_use"
-    case thinkingStart    = "thinking_start"
-    case permissionAsk    = "permission_ask"
-    case askUser          = "ask_user"           // Claude 调用 AskUserQuestion tool 时（PreToolUse 触发）
-    case askUserResolved  = "ask_user_resolved"  // AskUserQuestion 完成（PostToolUse 触发）
-    case stop             = "stop"
-    case error            = "error"              // PostToolUseFailure / StopFailure 共用
+public enum EventKind: String, Codable, Sendable {
+    case sessionStart    = "session_start"
+    case sessionEnd      = "session_end"        // SessionEnd hook，用于淘汰会话气泡
+    case userPrompt      = "user_prompt"
+    case preToolUse      = "pre_tool_use"
+    case postToolUse     = "post_tool_use"
+    case thinkingStart   = "thinking_start"     // 由 ThinkingTimer 注入，不来自 hook
+    case permissionAsk   = "permission_ask"     // PermissionRequest hook（非 AskUserQuestion）
+    case askUser         = "ask_user"           // AskUserQuestion：PreToolUse 路径（fire-and-forget 展示）/ PermissionRequest 路径（带 requestId 同步答题）
+    case askUserResolved = "ask_user_resolved"  // PostToolUse + tool_name=AskUserQuestion
+    case stop            = "stop"
+    case error           = "error"              // PostToolUseFailure / StopFailure；EventRouter 仅做 cancelPending，不切 PetState
+}
+```
+
+反向通道（Hopet → hopet-emit）只有一条 `PermissionResponse`：
+
+```swift
+public struct PermissionResponse: Codable, Sendable {
+    public let schema: Int
+    public let requestId: String
+    public let decision: String            // "allow" | "deny" | "ask"
+    public let reason: String?             // deny 时可选反馈文本（plan-approval 卡片用）
+    public let updatedInput: AnyCodable?   // AskUserQuestion 同步回写时填，承载 { questions, answers }
 }
 ```
 
@@ -342,94 +396,67 @@ struct PetInstance: Identifiable {
     var drivenBySessionId: String?     // 当前驱动动画的那个 session（高亮该气泡）
 }
 
-struct SessionBubble: Identifiable {
-    let id: String                     // = sessionId
-    let tool: AITool                   // 仅作为来源元信息（气泡上的 chip / "<Tool> 想执行此操作"）
-    var orbitAngle: Double             // 气泡在宠物周围的角度位置 (0–360°)
-    var orbitRing: Int                 // 第几环（默认 0；超过 6 个气泡时第二环为 1，依此类推）
-    var displayTitle: String           // 派生自 Session.title，再次截断到 18 字符
-    var displayCwd: String             // 派生自 Session.cwdLastComponent
-    var displayElapsed: String         // 由 stateSince 实时计算（"3s" / "2m" / "1h"）
-    var state: PetState                // 该 session 自身状态
-    var expanded: Bool                 // 是否展开为大卡片（只读状态卡 / Permission 决策卡 / AskUserQuestion 答题卡）
+public struct SessionBubble: Identifiable, Sendable {
+    public let id: String                  // = sessionId
+    public let tool: AITool                // 来源元信息（视图层目前不显式渲染 tool chip，但未来按工具区分时可用）
+    public var displayTitle: String        // 派生自 Session.title 或 cwdLastComponent，截至 40 字符
+    public var hasTitle: Bool              // false 表示 displayTitle 是 cwd 回退占位，视图避免重复渲染"标题行"
+    public var displayCwd: String
+    public var state: PetState
+    public var lastAssistantMessage: String?    // 默认卡片第二行
+    public var pendingQuestion: String?
+    public var pendingAskUser: PendingAskUser?
+    public var pendingPermission: PendingPermission?
 }
 ```
 
-气泡布局算法、视觉规格见 §[12.4](#124-会话气泡布局算法)。
+> 旧字段 `orbitAngle / orbitRing / displayElapsed / expanded` 已删除：v0.x 后气泡列改为**竖栈 + ScrollView**（详见 §12.4），不再环绕宠物排列；耗时由视图层基于 `Session.stateSince` 实时计算并通过 `stateDurationPhrase` 渲染，不进数据模型；"展开态"由是否存在 `pendingPermission / pendingAskUser / pendingQuestion` 隐式决定，不需要单独的 expanded 标志。
 
 **气泡生命周期**：
-- **创建**：`session_start` → 在唯一宠物周围插入新气泡，按 `startedAt` 顺序顺时针排列
-- **更新**：`stateSince` 变化 → 重算 `displayElapsed`；`title` 变化 → 重算 `displayTitle`
-- **淘汰**：`session_end` 或 60 分钟无事件 → 气泡淡出动画 0.3s 后移除，剩余气泡重排
+- **创建**：任意事件遇到新 `sessionId` → `EventRouter` 创建 Session 并随之产生 SessionBubble
+- **更新**：`Session` 任意字段变化 → `SessionRegistry.mutations` 广播 → `PetStageView` 重新渲染列表
+- **淘汰**：`SessionEnd` hook、用户在气泡右上角点 ✕（`InputCoordinator.dismissSession`）、`CompletedDecayTimer` 检测到 `lastActivityAt` 距今 ≥ 10 min、或 `EventRouter.pruneStaleSiblings` 检测到同 cwd / 同终端宿主下出现新 session 且旧 session `lastActivityAt` 距今 > 90 s
 
 ### 6.6 ThemePackage
 
-> 设计要点：磁盘 manifest 与运行时 model 分两层。manifest 允许 `frames` 是 glob 字符串（用户友好），运行时 `ThemeLoader` 展开为有序数组后构造 `ThemePackage`。
-
-**磁盘 manifest（与 manifest.json 一一对应，仅在导入/加载时使用）：**
+实际运行时模型已大幅简化。内置 Hopi 主题在 `Sources/Hopet/Theme/DefaultTheme.swift` 硬编码构造，**不读 manifest**；用户主题用 `~/.hopet/themes/<id>/manifest.json` + 8 个 GIF 文件（详见 preferences.md §5）。
 
 ```swift
-struct ThemeManifest: Codable {
-    let id: String
-    let name: String
-    let version: String
-    let author: String?
-    let description: String?
-    let minAppVersion: String
-    let defaultSize: CGSize
-    let anchorPoint: CGPoint
-    /// JSON key 为 PetState rawValue（如 "tool-use"、"permission-prompt"），用 [String: ManifestClip]
-    /// 而非 [PetState: ...]，避免自定义 KeyDecodingStrategy。
-    let animations: [String: ManifestClip]
+public struct ThemePackage: Identifiable, Hashable, Sendable {
+    public let id: String
+    public let name: String
+    public let version: String
+    public let author: String?
+    public let description: String?
+    public let glyphs: [PetState: String]                  // 主题未挂动画时的占位文字（如 "💤 Idle"）
+    public let animations: [PetState: FrameAnimation]
+    public let accentOverrides: [PetState: ColorToken]
+    public let isUserProvided: Bool                        // true 时 ThemesTab 显示 Delete
+    public let sourceDirectory: URL?                       // 用户主题目录绝对路径；内置为 nil
 }
 
-struct ManifestClip: Codable {
-    let frames: ManifestFrames   // glob 字符串 或 路径数组
-    let fps: Double
-    let loop: Bool
-    let transition: TransitionStyle?
+/// 逐帧动画来源。
+public enum FrameAnimation: Hashable, Sendable {
+    case bundlePNG(directory: String, framesPerSecond: Double) // 内置主题：Bundle.module 内 PNG 帧目录
+    case gifFile(url: URL)                                     // 用户主题：单个 GIF 文件
 }
 
-enum ManifestFrames: Codable {
-    case glob(String)            // "sprites/idle/*.png"
-    case explicit([String])      // ["sprites/idle/0001.png", ...]
-    // 自定义 init(from:)/encode(to:) 自动判断
-}
+public struct ColorToken: Hashable, Sendable { /* RGB */ }
 ```
 
-**运行时 model（HopetCore 与 HopetThemeKit 内部使用）：**
+**用户主题 manifest 仅 4 个字段**（preferences.md §5.2）：
 
-```swift
-struct ThemePackage {
-    let id: String
-    let name: String
-    let version: String
-    let author: String?
-    let description: String?
-    let minAppVersion: String
-    let defaultSize: CGSize
-    let anchorPoint: CGPoint
-    /// ThemeLoader 已经把 glob 展开、把 String key 映射为 PetState 枚举。
-    /// 若 manifest 缺少某个 state，用 .idle 兜底，并在加载日志里记录 fallback。
-    let animations: [PetState: AnimationClip]
-}
-
-struct AnimationClip {
-    let frames: [URL]            // 已绝对路径化，可直接交给 SKTextureAtlasBuilder
-    let fps: Double
-    let loop: Bool
-    let transition: TransitionStyle
-}
-
-enum TransitionStyle: String, Codable {
-    case cut, fade, crossDissolve = "cross-dissolve"
-}
+```json
+{ "schemaVersion": 1, "id": "user.<slug>.<uuid8>", "name": "<用户输入>", "createdAt": "2026-05-09T12:34:56Z" }
 ```
+
+8 个 GIF 文件按 `PetState.rawValue` 命名（`idle.gif` / `tool-use.gif` / `permission-prompt.gif` …），任一缺失视为非法。
 
 **约定**：
-- manifest 解析失败 → 整个主题导入失败
-- 单个 state 缺帧 → 该 state fallback 到 `idle`，导入成功但 UI 显示警告徽章
-- `ThemePackage` 不实现 `Codable`，避免与 manifest 来回切换的混乱
+- 内置 Hopi 主题无 manifest，资源路径硬编码到 `Resources/Themes/Hopi/seal-<state>/*.png`
+- 用户主题任一 GIF 缺失 / UTI 不是 `public.gif` / 帧数 0 → 拒绝导入，半成品目录回滚
+- 没有过渡动画模型（`TransitionStyle` 已删除）：SwiftUI 渲染层用极短直线动画即可
+- 没有 `loop` 字段：默认全部循环；`completed` 等非循环语义由视图层根据 `PetState` 自行处理
 
 ### 6.7 主题选择（全局单一）
 
@@ -445,28 +472,32 @@ v0.x 起宠物全局唯一，主题也只有一个全局值——`HopetConfig.ac
 stateDiagram-v2
     [*] --> idle: session_start
     idle --> responding: user_prompt
-    responding --> thinking: thinking_start / 8s 超时
+    idle --> permissionPrompt: permission_ask
+    idle --> askUser: ask_user
+    idle --> toolUse: pre_tool_use
+    responding --> thinking: thinking_start
     thinking --> responding: post_tool_use
     responding --> toolUse: pre_tool_use
     thinking --> toolUse: pre_tool_use
     toolUse --> responding: post_tool_use
     responding --> permissionPrompt: permission_ask
+    thinking --> permissionPrompt: permission_ask
     toolUse --> permissionPrompt: permission_ask
     permissionPrompt --> responding: post_tool_use
     permissionPrompt --> completed: stop
     responding --> askUser: ask_user
     thinking --> askUser: ask_user
+    toolUse --> askUser: ask_user
+    askUser --> responding: ask_user_resolved
     askUser --> responding: user_prompt
-    responding --> errorInterrupted: error
-    toolUse --> errorInterrupted: error
-    thinking --> errorInterrupted: error
-    errorInterrupted --> responding: user_prompt
-    errorInterrupted --> idle: session_start
+    askUser --> completed: stop
     responding --> completed: stop
     thinking --> completed: stop
     toolUse --> completed: stop
     completed --> idle: 2s 延迟
 ```
+
+> `error` 事件**不在状态图中**：`PostToolUseFailure` 在实际 Claude 使用中包含 `grep` / `head` / `ls` 等命令的非零退出，发得过于频繁；状态机收到 `error` 时只触发 `EventRouter.cancelPending` 清掉挂起的权限 / 答题气泡，**当前 `PetState` 保持不变**。`errorInterrupted` 状态值仍保留，等未来出现真正的"会话级错误"事件源再启用。
 
 ### 7.2 转换表
 
@@ -474,32 +505,44 @@ stateDiagram-v2
 | --- | --- | --- | --- |
 | *（任意）* | `session_start` | idle | Claude `SessionStart` hook，注册 Session、创建对应气泡 |
 | *（任意）* | `session_end` | *（移除）* | Claude `SessionEnd` hook，从 Registry 移除 Session、淘汰气泡、触发宠物聚合重算 |
-| idle | `user_prompt` | responding | Claude `UserPromptSubmit` hook，记录 lastPromptSnippet |
-| responding | `thinking_start` | thinking | **由 Core 定时器主动判定**（responding 持续 ≥ 8s），无对应 hook |
-| responding / thinking | `pre_tool_use` | toolUse | Claude `PreToolUse` hook，**且 `tool_name != "AskUserQuestion"`**（AskUserQuestion 走上面的 `ask_user` 行） |
+| idle / errorInterrupted / askUser | `user_prompt` | responding | Claude `UserPromptSubmit` hook，记录 lastPromptSnippet |
+| responding | `thinking_start` | thinking | **由 `ThinkingTimer` 主动判定**（responding 持续 ≥ 8s），无对应 hook |
+| idle / responding / thinking | `pre_tool_use` | toolUse | Claude `PreToolUse` hook，**且 `tool_name != "AskUserQuestion"`**（AskUserQuestion 走下面的 `ask_user` 行）。`idle → toolUse` 用于冷启动场景（subagent reroute / 缺 SessionStart 的宿主） |
 | toolUse | `post_tool_use` | responding | Claude `PostToolUse` hook，**且 `tool_name != "AskUserQuestion"`** |
-| toolUse / responding | `permission_ask` | permissionPrompt | **优先使用 Claude `PermissionRequest` hook**（若可用）；否则使用 `Notification` hook 并在脚本侧判断 `notification_type == "permission_prompt"`，不再无条件映射所有 Notification |
-| permissionPrompt | `post_tool_use` / `stop` | responding / completed | 视后续事件 |
-| responding / thinking / toolUse | `ask_user` | askUser | Claude `PreToolUse` hook 且 `tool_name == "AskUserQuestion"`（hopet-emit 用 `--require tool_name=AskUserQuestion` 路由） |
-| askUser | `ask_user_resolved` | responding | Claude `PostToolUse` hook 且 `tool_name == "AskUserQuestion"`（用户完成回答，AskUserQuestion tool 返回） |
+| idle / responding / thinking / toolUse | `permission_ask` | permissionPrompt | Claude `PermissionRequest` hook（不再做 Notification 回退，见 hooks-and-priority.md §1）。`idle → permissionPrompt` 兜底未注册 session 上首条就是权限请求的冷启路径 |
+| permissionPrompt | `post_tool_use` | responding | 用户点 Allow → Claude 继续工具调用 → 触发 PostToolUse |
+| permissionPrompt | `stop` | completed | 用户决策落地后 Claude 结束这一轮 |
+| idle / responding / thinking / toolUse | `ask_user` | askUser | Claude `PreToolUse` hook 且 `tool_name == "AskUserQuestion"` |
+| askUser | `ask_user_resolved` | responding | Claude `PostToolUse` hook 且 `tool_name == "AskUserQuestion"` |
 | askUser | `user_prompt` | responding | 兜底：若用户主动新发 prompt 而 PostToolUse 漏触发 |
-| *（任意）* | `error` | errorInterrupted | Hook 显式 `error` 或 stderr 解析（v0.2+） |
-| errorInterrupted | `user_prompt` / `session_start` | responding / idle | 由后续事件恢复 |
+| askUser | `stop` | completed | 若 Claude 在 askUser 期间直接结束（罕见，但保留兜底） |
 | responding / toolUse / thinking | `stop` | completed | Claude `Stop` hook |
-| completed | *（2s timeout）* | idle | 自然回到待命 |
+| completed | *（2s timeout）* | idle | `CompletedDecayTimer` 处理 |
+| *（任意）* | `error` | *（不切，仅 cancelPending）* | 见 §7.1 注 |
 
 ### 7.3 超时与降级
 
 | 规则 | 描述 |
 | --- | --- |
-| **Thinking 自动升级** | Core 定时器（每 500ms 扫描）若 `responding` 停留超过 8s 则主动切 `thinking`，无需 hook 显式上报 |
-| **toolUse 长执行** | `toolUse` **不做自动 idle 降级**。`npm install` / `xcodebuild` / `pytest` 等长任务可能在 `pre_tool_use` 后数分钟无任何事件，必须严格等待 `post_tool_use` / `error` / `stop`。当 toolUse 持续 ≥ 30s，刘海条文案追加 elapsed timer（如「执行 Bash · 02:13」）作为视觉提示 |
-| **responding 长执行** | 类似 toolUse，超过 8s 切 `thinking`；`thinking` 状态本身不再二次降级 |
-| **孤儿 Session 清理** | 60 分钟无任何事件 → 从 Registry 移除（释放宠物窗口） |
-| **App 重启恢复** | 启动时 `state/sessions.json` 中 10 分钟内的 Session 恢复为 `idle` 灰度态，等待新事件唤醒 |
-| **动画过渡最小间隔** | 连续状态变更间隔 < 300ms 时合并，避免抖动 |
+| **Thinking 自动升级** | `ThinkingTimer` 每 500 ms 扫描，把 `responding` 停留 ≥ 8 s 的 session 切到 `thinking`。`thinking` 状态本身不再二次降级 |
+| **Completed 自然回 idle** | `CompletedDecayTimer` 每秒扫描，`completed` 停留 ≥ 2 s 切回 `idle` |
+| **toolUse 长执行** | `toolUse` **不做自动 idle 降级**——必须严格等待 `post_tool_use` / `error` / `stop`，避免 `npm install` / `pytest` 等长任务中途被误判为空闲 |
+| **陈旧 Session 清理（10 min）** | `CompletedDecayTimer` 顺手检查 `Session.lastActivityAt`，距今 ≥ 10 min 无任何事件即从 Registry 移除。给 VS Code Claude 插件等不发 `SessionEnd` hook 的宿主兜底 |
+| **同宿主躺尸清理（90 s）** | `EventRouter.pruneStaleSiblings`：每当一条事件触发新建 Session，扫同 cwd / 同终端宿主（tty / terminalApp / terminalSessionId 匹配）的其它 Session，`lastActivityAt` 距今 > 90 s 的直接移除。处理"同一个终端 tab 里反复 `claude` 启动"的情况 |
+| **App 重启恢复** | 不做。Session state 不落盘，App 重启即丢失全部 Session，下一条事件冷启重建（Registry 在 `idle → permission_ask` / `idle → pre_tool_use` 等转换上有兜底） |
+| **动画过渡** | 由 SwiftUI 视图层 `withAnimation` 控制，模型层不去重 |
 
-> 注意：Hopet **不假设** hook 脚本会发 heartbeat。Core 不基于"x 秒无事件"做主动状态推断（thinking 升级除外，因为它只发生在 `responding` 内）。
+> Hopet **不假设** hook 脚本会发 heartbeat。Core 不基于"x 秒无事件"做主动状态推断（thinking 升级除外，因为它只发生在 `responding` 内）。
+
+### 7.4 Subagent 重路由
+
+Claude Code 子 agent 触发同步类 hook（permission_ask / ask_user）时，`hopet-emit` 根据 stdin 中 `parent_session_id` / `agent_id` / `subagent_id` / `subagent_type` / `agent_type` 任一存在即视为 subagent，给 `StateEvent.isSubagent = true`。`EventRouter` 收到带 subagent 标记的同步 hook 时：
+
+1. 用 `transcript_path` 找到该 transcript 上首个见到的"主 session id"
+2. 调用 `StateEvent.reroute(toSessionId:)` 把 sessionId 改写成主 session 的 id
+3. 重新走一遍状态机 → 气泡挂在主 session 上
+
+子 agent 自身不创建 Session、不显示气泡——从用户视角看是"主会话在等你回答"。`StateEvent.isSubagent` 字段在状态类（非同步）事件上也用于直接丢弃，避免主气泡被子 agent 的 toolUse 闪烁。
 
 ### 7.4 宠物聚合状态（多 session → 单宠物）
 
@@ -652,9 +695,6 @@ hopet-emit --tool claude-code --event pre_tool_use \
     "PermissionRequest": [
       { "hooks": [{ "type": "command", "command": "~/.hopet/bin/hopet-emit --tool claude-code --event permission_ask" }] }
     ],
-    "Notification": [
-      { "hooks": [{ "type": "command", "command": "~/.hopet/bin/hopet-emit --tool claude-code --event permission_ask --require notification_type=permission_prompt" }] }
-    ],
     "Stop": [
       { "hooks": [{ "type": "command", "command": "~/.hopet/bin/hopet-emit --tool claude-code --event stop" }] }
     ],
@@ -668,17 +708,20 @@ hopet-emit --tool claude-code --event pre_tool_use \
 **两点关键路由设计**：
 
 1. **AskUserQuestion 路由**：`AskUserQuestion` 是 Claude Code 的内置 tool，每次调用都走标准 `PreToolUse` / `PostToolUse` hook，payload 中 `tool_name == "AskUserQuestion"` 是非常可靠的判别字段。Hopet 把这两个 hook 各拆成两条注册：用 `--require` 抓 AskUserQuestion 单独路由到 `ask_user` / `ask_user_resolved`，用 `--exclude` 在普通 `pre_tool_use` / `post_tool_use` 中排除掉 AskUserQuestion，避免双发。
-2. **PermissionRequest 路由**：同时注册 `PermissionRequest`（精确，主路径）与 `Notification + --require notification_type=permission_prompt`（兼容回退）。以 `PermissionRequest` 为主；若运行的 Claude Code 版本未实现该 hook，回退路径仍能正确识别，**避免对所有 Notification 误报为权限请求**。
+   > AskUserQuestion 的**同步答题**（带 `requestId`、用 `updatedInput.answers` 回包）实际走的是 **`PermissionRequest`** hook——`AskUserQuestion` 调用本身在 Claude 内部经过权限系统，触发同名 hook 且 `tool_name == "AskUserQuestion"`。`PreToolUse` 的 `ask_user` 路径只用于让气泡尽早展示提问文案（fire-and-forget）。两条路径并存：先 `PreToolUse` 让 UI 提前进入答题态，再 `PermissionRequest` 带来真正的 `requestId` 和 `originalToolInputJSON` 等待用户作答回写。
+2. **PermissionRequest 路由**：只注册 `PermissionRequest`。早期版本同时注册 `Notification + --require notification_type=permission_prompt` 作为兼容回退，实测两条 hook 会同步并发触发，把同一次权限事件双发，所以彻底删除（见 hooks-and-priority.md §1 注 1）。
 
 #### 8.4.3 关于 `--require` 与 `payload` 字段
 
 `hopet-emit` 在向 socket 发送的 `StateEvent.payload` 中，**仅保留以下白名单字段**（来自 Claude hook stdin），其它字段丢弃以减少敏感数据暴露：
 
-- `tool_name`、`tool_input.command`（截断 256 字符）、`tool_input.file_path`
+- `tool_name`、`tool_input`、`tool_input.command`（截断 256 字符）、`tool_input.file_path`、`tool_input.question`
 - `notification_type`、`message`（截断 256 字符）
-- `session_id`、`cwd`
+- `session_id`、`cwd`、`transcript_path`
+- `parent_session_id`、`agent_id`、`subagent_id`、`subagent_type`、`agent_type`（subagent 判据）
+- `assistant_message`（Stop hook 触发时由 hopet-emit 从 `transcript_path` 抽取出来的本轮 Claude 回复开头，已 trim + 截断 120 字符）
 
-这与 §10.3 隐私边界一致。
+权威源：`Sources/hopet-emit/main.swift` 的 `payloadKeyAllowlist`。这与 §10.3 隐私边界一致。
 
 ### 8.5 Codex Hook 脚本样例（v0.2 起接入官方 hooks）
 
@@ -720,17 +763,17 @@ Codex CLI 0.129.0-alpha 起公开了与 Claude 几乎一致的细粒度生命周
 1. **`stop_hook_active=true` 静默退出**：Codex 的 Stop hook 同 Claude 一样有自递归保护标志，必须早退避免无限递归
 2. **`session_id` 兜底**：Codex 经常发空 `session_id`，但 `transcript_path` 形如 `rollout-<isoDateUtc>-<uuid>.jsonl`，文件名 UUID 稳定唯一。空 sid 时从 transcript_path 抽 uuid 拼成 `codex-<uuid>` 写回 payload，避免被 EventRouter 的 `anon-` 前缀逻辑当 subagent 丢弃
 
-#### 8.5.3 Codex 能力边界（v0.2）
+#### 8.5.3 Codex 能力边界
 
 | 状态 | 是否可识别 | 事件源 |
 | --- | --- | --- |
 | `idle` | ✅ | SessionStart |
-| `responding` / `thinking` | ✅ | UserPromptSubmit + Core 8s 定时器升级 |
+| `responding` / `thinking` | ✅ | UserPromptSubmit + `ThinkingTimer` 8 s 升级 |
 | `tool-use` | ✅ | PreToolUse / PostToolUse |
 | `permission-prompt` | ✅ | PermissionRequest（同步回包） |
 | `completed` | ✅ | Stop |
 | `ask-user` | ❌ | Codex 无 AskUserQuestion 内置 tool |
-| `error-interrupted` | ❌ | Codex 不分流错误 hook |
+| `error-interrupted` | ❌ | Codex 不分流错误 hook（Claude 上也已停用，见 §7.1 注） |
 
 **迁移：旧版 Hopet 写入的 `~/.codex/config.toml [notify]` 块** 在 install 时会被自动清理（识别 `# >>> hopet-managed >>>` / `# <<< hopet-managed <<<` 守卫行），避免 stop 事件被双发。
 
@@ -738,96 +781,61 @@ Codex CLI 0.129.0-alpha 起公开了与 Claude 几乎一致的细粒度生命周
 
 ## 9. 附录 B：主题包规范
 
-### 9.1 目录结构
+> 实际实现见 [preferences.md §5](./preferences.md)。本节只描述当前形态与未来扩展计划。
 
-解压后的主题形如：
+### 9.1 当前形态：用户自定义主题
+
+用户主题位于 `~/.hopet/themes/<id>/`：
 
 ```
-hopi.default/
+~/.hopet/themes/<id>/
 ├── manifest.json
-├── preview.png            # 主题列表缩略图 (240×240)
-├── sprites/
-│   ├── idle/              # 帧序列，按文件名排序播放
-│   │   ├── 0001.png
-│   │   ├── 0002.png
-│   │   └── ...
-│   ├── responding/
-│   ├── thinking/
-│   ├── tool-use/
-│   ├── permission-prompt/
-│   ├── ask-user/
-│   ├── completed/
-│   └── error-interrupted/
-└── audio/                 # 可选，v0.2 启用
-    └── notify.caf
+├── idle.gif
+├── thinking.gif
+├── responding.gif
+├── tool-use.gif
+├── permission-prompt.gif
+├── ask-user.gif
+├── completed.gif
+└── error-interrupted.gif
 ```
 
-分发形式：将整个目录打包为 `.hopettheme`（本质 zip），双击或拖入管理面板即可导入。
-
-### 9.2 manifest.json 示例
-
-`frames` 字段接受两种等价写法（参见 §6.6 `ManifestFrames`）：
-- **glob 字符串**（推荐，主题作者友好）：如 `"sprites/idle/*.png"`，按文件名升序展开
-- **路径数组**（精细控制顺序时使用）：如 `["sprites/idle/0001.png", "sprites/idle/0002.png", ...]`
+文件名严格对齐 `PetState.rawValue`。8 个 GIF 文件**任一缺失即视为非法**。
 
 ```json
 {
-  "id": "hopi.default",
-  "name": "Hopi",
-  "version": "1.0.0",
-  "author": "Hopet Team",
-  "description": "内置默认主题：一只圆滚滚的小海豹",
-  "minAppVersion": "0.1.0",
-  "defaultSize": { "width": 128, "height": 128 },
-  "anchorPoint": { "x": 0.5, "y": 0.0 },
-  "animations": {
-    "idle":              { "fps": 8,  "loop": true,  "frames": "sprites/idle/*.png" },
-    "responding":        { "fps": 12, "loop": true,  "frames": "sprites/responding/*.png" },
-    "thinking":          { "fps": 6,  "loop": true,  "frames": "sprites/thinking/*.png" },
-    "tool-use":          { "fps": 14, "loop": true,  "frames": "sprites/tool-use/*.png" },
-    "permission-prompt": { "fps": 10, "loop": true,  "frames": "sprites/permission-prompt/*.png" },
-    "ask-user":          { "fps": 10, "loop": true,  "frames": "sprites/ask-user/*.png" },
-    "completed":         { "fps": 12, "loop": false, "frames": ["sprites/completed/0001.png", "sprites/completed/0002.png"], "transition": "fade" },
-    "error-interrupted": { "fps": 10, "loop": true,  "frames": "sprites/error-interrupted/*.png" }
-  }
+  "schemaVersion": 1,
+  "id": "user.<slug>.<uuid8>",
+  "name": "<用户输入>",
+  "createdAt": "2026-05-09T12:34:56Z"
 }
 ```
 
-> 运行时 `ThemeLoader` 把上述 manifest 转换为 §6.6 的 `ThemePackage`，glob 在加载时一次性展开为 `[URL]`。运行时不再持有 glob 字符串。
+`id` 由 App 生成：slug 来自用户输入名经规整（小写、ASCII、空格转连字符），uuid8 防止重名碰撞，前缀 `user.` 与内置 `hopi.default` 命名空间隔离。
 
-### 9.3 校验规则
+### 9.2 导入流程
 
-#### 9.3.1 解压前的安全校验（防 zip slip）
+详见 [preferences.md §5.3](./preferences.md)。导入入口支持两条路径：
 
-`.hopettheme` 解压**必须**在写盘前对每个 zip entry 执行：
+1. **8 槽手填**：用户在 sheet 上为 8 个 PetState 各拖入 / 选择一个 GIF
+2. **文件夹 / .zip 自动扫描**：用户拖入一个文件夹或 `.zip`，`UserThemeImporter.DirectoryScan` 按文件名（忽略大小写与 `-`/`_`/空格）匹配 `PetState.rawValue`，自动填好 8 槽并报告缺失项 / 重复项 / 不识别的文件
 
-1. **拒绝绝对路径**：entry path 不可以 `/` 开头或包含盘符
-2. **拒绝路径穿越**：normalized path 不能包含 `..` 段
-3. **拒绝 symlink / hard link entry**：v0.1 主题不允许任何符号链接，遇到直接拒绝
-4. **拒绝特殊文件**：仅允许常规文件与目录，拒绝 device file、FIFO 等
-5. **路径白名单后缀**：仅允许 `.json`、`.png`、`.apng`、`.caf`（v0.2 音频用）
-6. **总体积 ≤ 50 MB，单文件 ≤ 10 MB，entry 数量 ≤ 5000**
-7. **staging 目录使用随机 UUID**：`~/.hopet/themes/_staging/<uuid>/`
-8. **move 前二次校验**：解压完成后，对每个文件再用 `realpath` 做一次校验，**所有文件最终绝对路径必须仍位于 `~/.hopet/themes/_staging/<uuid>/` 之内**，否则全量回滚
+校验：
+- UTI 必须是 `public.gif`（避免改名 `.gif` 绕过）
+- `CGImageSourceCreateWithURL` 必须成功且帧数 ≥ 1
+- 任一校验失败 → 删除半成品目录回滚
 
-任一项失败 → 立即清理 staging 目录、终止导入、向用户显示具体错误码。
+### 9.3 内置 Hopi 主题
 
-#### 9.3.2 主题语义校验
+不写盘，不读 manifest——`Sources/Hopet/Theme/DefaultTheme.swift` 硬编码构造 `ThemePackage`，每个 `PetState` 指向 `Resources/Themes/Hopi/seal-<state>/` 目录下的 PNG 帧序列。帧序列由 `scripts/build-pet-animation.py` 从 `DevDocs/assets/seal-<state>-spritesheet.png` 切出（详见 AGENTS.md §5.1）。
 
-通过解压安全校验后，`ThemeValidator` 继续按顺序执行：
+### 9.4 未来计划（v0.3+）
 
-1. `manifest.json` 存在且通过 schema 校验（参考 §6.6 `ThemeManifest`）
-2. `id` 不与已安装主题冲突（或提示升级 / 共存）
-3. 8 种 `PetState` 动画键必须全部存在；任一缺失则该 state fallback 到 `idle`，并在导入结果里标注降级项
-4. 所有 `frames` 引用的文件存在、宽高一致、格式为 PNG 或 APNG (Animated PNG)
-5. `minAppVersion` ≤ 当前 App 版本
-6. `id` 形如 `<author-id>.<theme-id>`（小写字母、数字、`-`、`.`），长度 ≤ 64
+- `.hopettheme` zip 分发 + 解压安全校验（zip slip 防护：拒绝绝对路径 / `..` / symlink / 总体积上限 / staging UUID 目录 / realpath 二次校验）
+- 主题包内自带 chrome 配色 / glyphs override
+- 主题商店签名校验
 
-校验失败列出具体错误，导入终止，不影响已安装主题。
-
-### 9.4 签名（预留，v0.2+）
-
-为未来的主题商店预留 manifest 顶层 `signature` 字段。v0.1 只做本地导入，不做签名验证。
+这些都不在当前 v0.1/v0.2 范围。
 
 ---
 
@@ -883,22 +891,21 @@ debug 日志（`advanced.logLevel = debug`）可记录截断后的 payload 字�
 
 ```
 ~/.hopet/
-├── config.json                 # 全局配置（启动项、刘海样式、默认主题、终端偏好）
-├── bindings.json               # AI 工具 ↔ 主题绑定
+├── config.json                 # HopetConfig：version / appearance / activeThemeId / listeners
 ├── themes/
-│   ├── hopi.default/           # 内置主题（首次启动从 bundle 拷贝）
-│   └── <user-theme-id>/        # 用户导入主题
+│   └── <user-theme-id>/        # 用户导入主题；内置 hopi.default 不写盘，运行时硬编码
+│       ├── manifest.json       # { schemaVersion, id, name, createdAt }
+│       └── {idle,thinking,...}.gif  # 8 个 PetState 各一个 GIF
 ├── bin/
 │   └── hopet-emit              # Swift CLI helper，所有 hook 都通过它发事件
-├── state/
-│   └── sessions.json           # 最近 Session 快照（启动时恢复 registry）
 ├── run/
 │   └── hopetd.sock             # IPC Unix socket（运行时）
-└── logs/
-    └── hopet.log               # 滚动日志，≤10 MB，保留 3 份
+└── logs/                       # 滚动日志（HopetLog 落盘）
 ```
 
-- `themes/hopi.default/` 在 App 升级时如用户未修改则覆盖，用户修改过则跳过（用文件哈希判断）。
+- 内置 Hopi 主题不写盘——`DefaultTheme.swift` 直接构造 `ThemePackage`，资源走 `Bundle.module` 内的 `Resources/Themes/Hopi/`。`hopi.default` 在文件系统上不存在对应目录。
+- 没有 `bindings.json`——v0.x 起宠物全局唯一，主题也只有一个 `HopetConfig.activeThemeId` 全局值。
+- 没有 `state/sessions.json`——Session state 不落盘（见 §7.3）。
 - `logs/` 默认按日轮转；可在偏好中关闭或清空。
 
 ---
@@ -934,33 +941,37 @@ SpriteKit 实现为 `SpriteKitPetRenderer`，后续可新增 `Live2DPetRenderer`
 
 ### 12.4 会话气泡布局算法
 
-宠物全局唯一，周围环绕若干 `SessionBubble`，每个气泡 = 一个活跃 session（不区分来源 AI 工具）。
+宠物全局唯一，气泡列**竖栈贴宠物头顶 + ScrollView 滚动**——不再环绕（环绕方案在屏幕边缘极易越界、Leader 弧线视觉指向无法 hit-test，且单只海豹周围摆 6+ 个气泡视觉拥挤）。实现在 `Sources/Hopet/Pet/PetStageView.swift`。
 
-**布局参数**：
+**布局参数**（与代码常量对应）：
 
 | 参数 | 默认值 |
 | --- | --- |
-| 宠物本体半径 `R_pet` | 64 px（基于 128×128 主题尺寸） |
-| 气泡半径 `R_bubble` | 32 px |
-| 气泡-宠物间距 `gap` | 16 px |
-| 第 N 环轨道半径 | `R_pet + gap + (2N+1) * R_bubble + N * gap` |
-| 单环最大气泡数 | 6（避免相互重叠） |
-| 第 N 环角度起点 | `(360°/count) * (sessionIndex - sessionsInLowerRings) + 30°*N`（每外环旋转 30° 错位） |
+| 默认卡片估算高度 `defaultBubbleHeight` | 76 pt |
+| Permission 卡片估算高度 | 260 pt |
+| Plan-approval 卡片估算高度 | 430 pt |
+| AskUserQuestion 卡片估算高度 | 390 pt |
+| 旧 fire-and-forget 问询卡 | 120 pt |
+| 默认场景同时可见 `maxVisibleBubbles` | 5（第 6 条起进入滚动） |
+| 气泡间距 `interBubbleSpacing` | 6 pt |
+| 气泡-宠物间距 `bubbleToPetGap` | 6 pt |
+| 宠物窗口高度 | `PetWindow.stageSize.height`（PetWindowController 内常量） |
 
 **排列规则**：
 
-1. 按 `Session.startedAt` 升序为每个 session 分配 `orbitIndex`（0, 1, 2, ...）
-2. `orbitRing = orbitIndex / 6`，环内位置 = `orbitIndex % 6`
-3. 每环按 `360°` 均分，确保视觉对称；外环额外加 `30°` 偏移避免与内环视觉穿插
-4. 当宠物靠近屏幕边缘时，气泡会自动从外侧环绕翻到内侧（本质是把屏幕外的角度区间收缩到屏幕内）
+1. 按 `Session.startedAt` 倒序排列：最新会话在列表头（最上方），最旧会话在末尾（紧贴宠物头顶）
+2. 视口高度 = `min(estimate, expandedBubbleAreaMaxHeight)`，其中 estimate 是按 `pendingKind` 加总每个气泡的估算高度
+3. 视口未满时所有气泡贴底显示，紧贴宠物头顶
+4. 视口超过 `defaultBubbleAreaMaxHeight`（约 5 张默认卡）后顶部溢出，由右侧 `PixelScrollThumb` 提示并往上滚查看
+5. pending 卡片（permission / plan-approval / askUser）出现时视口直接顶到 `expandedBubbleAreaMaxHeight`（宠物窗口可用空间），下一帧 GeometryReader 量到真实高度后回稳
 
-**Leader 高亮**：`PetInstance.drivenBySessionId` 对应的气泡边框加粗 + 用宠物当前状态色，其它气泡边框使用浅灰。
+**Leader 高亮**：`PetInstance.drivenBySessionId` 对应的气泡 `isLeader = true`，由 `SessionBubbleView` 自行渲染（描边加粗 + 状态色），其它气泡使用普通描边。
 
-**展开态**：用户点击某个气泡，该气泡放大为 280×80 的**只读状态卡**（标题 / cwd / 状态徽章 / 耗时），不提供"输入消息"功能（详见 §12.5）。
+**默认卡片**：标题（或 cwd 占位） + `lastAssistantMessage` 第二行 + 状态徽章 + `stateDurationPhrase`（"running 3s" / "5m ago"）。右上角始终有 ✕ 用于手动清掉僵尸气泡——真活会话被误关时下一次状态事件会冷启重建。
 
-**Permission 触发时**：该 session 的气泡**自动展开**为 360×160 的决策卡，显示工具名 + 命令/路径预览 + Allow / Deny / 交给终端 三个按钮。用户决策后通过挂起的 hook socket 同步回写。
+**Permission 触发时**：气泡自适应渲染为决策卡，显示工具名 + 命令/路径预览 + Allow / Deny / Ask（Ask 即"交给终端"，让 Claude 走自身 TUI 弹窗）。`ExitPlanMode` 工具走单独的 plan-approval 卡片，承载已 trim 的 plan markdown 与"自定义反馈"输入框（作为 deny 的 reason 回写）。决策通过挂起的 hook socket 同步回写。
 
-**AskUserQuestion 触发时**：该 session 的气泡**自动展开**（无需点击）为 360×220 的答题卡，显示 Claude 的提问 + 选项按钮 + 自定义文本框，多问题时分页填写。用户答完后回包带 `updatedInput.answers = { 问题: 答案 }`，Claude 直接拿到结果（不依赖 PTY 注入或终端自动化，跨所有宿主工作）。
+**AskUserQuestion 触发时**：气泡自适应渲染为答题卡，显示 Claude 的提问 + 选项按钮（来自 `tool_input.options`）+ 自定义文本框，多问题时分页填写、`multiSelect` 时维护勾选集合并在提交时拼接。最后一页提交时一次性回包 `{ behavior: "allow", updatedInput: { questions, answers } }`，Claude 直接拿到结果（不依赖 PTY 注入或终端自动化，跨所有宿主工作）。
 
 ### 12.5 关于"在气泡里自由输入消息"——v0.1 不做的功能
 
@@ -992,45 +1003,56 @@ SpriteKit 实现为 `SpriteKitPetRenderer`，后续可新增 `Live2DPetRenderer`
 
 > 范围与 §1.2 能力表一致；任何范围调整须同步改这两处。
 
-### v0.1（MVP — 目标 8–10 周）
+### v0.1（MVP — 已完成）
 
 **Must-have**：
 
-- [ ] HopetCore：SocketServer + SessionRegistry + StateMachine
-- [ ] `hopet-emit` Swift CLI helper（替代 shell JSON 拼接）
-- [ ] Claude Code hooks：SessionStart / SessionEnd / UserPromptSubmit / Pre/PostToolUse（含 AskUserQuestion 路由）/ PostToolUseFailure / PermissionRequest / Notification(filtered) / Stop / StopFailure（详见 [hooks-and-priority.md §1.1](./hooks-and-priority.md#11-v01-实际订阅的-8-个-hook)）
-- [ ] 内置 Hopi 主题（8 种状态动画各 8–16 帧）
-- [ ] PetInstance 全局唯一 + SpriteKit 渲染 + 聚合状态切换（含 ask-user）
-- [ ] SessionBubble 渲染（环绕布局、cwd / title / elapsed 显示、leader 高亮、AskUserQuestion 自动展开）
-- [ ] PetAggregator（按优先级聚合多 session → 单宠物动画）
-- [ ] NotchWindow 三态 + 无刘海机型降级顶条
-- [ ] **PermissionRequest 气泡决策**：Allow / Deny / 交给终端（hook socket 同步回包）
-- [ ] **AskUserQuestion 气泡答题**：选项按钮 + 自定义文本（hook 回包带 `updatedInput.answers`，跨所有宿主）
-- [ ] 偏好面板骨架（Overview / Themes 只读 / Bindings 全局单一 / Hooks / Behavior / Notifications / About）
-- [ ] Hook 一键安装 / 卸载 + HookDoctor（含 SessionEnd / PostToolUseFailure / StopFailure 等新 hook）
+- [x] Core：SocketServer + FrameCodec + EventRouter + SessionRegistry + SessionStateMachine + PetAggregator + ThinkingTimer + CompletedDecayTimer
+- [x] `hopet-emit` Swift CLI helper：长度前缀 JSON 帧、白名单字段过滤、Codex `stop_hook_active` / `session_id` 兜底、Stop hook 从 transcript 抽 `assistant_message`
+- [x] Claude Code hooks：SessionStart / SessionEnd / UserPromptSubmit / Pre&PostToolUse（含 AskUserQuestion `--require` / `--exclude` 路由）/ PostToolUseFailure / PermissionRequest / Stop / StopFailure（权威清单见 [hooks-and-priority.md §1.1](./hooks-and-priority.md#11-实际订阅的-claude-code-hook)；不再注册 Notification）
+- [x] Codex CLI hooks：SessionStart / UserPromptSubmit / Pre&PostToolUse / PermissionRequest / Stop（写入 `~/.codex/hooks.json`，install 时清掉 `~/.codex/config.toml` 历史 `[notify]` 块）
+- [x] 内置 Hopi 主题（8 种状态动画 21 或 28 帧；`scripts/build-pet-animation.py` 切 sprite sheet）
+- [x] PetInstance 全局唯一 + SwiftUI 帧动画 + 聚合状态切换
+- [x] SessionBubble 渲染：**竖栈贴宠物头顶 + ScrollView 滚动**、cwd / title / state / stateDurationPhrase、leader 高亮、Permission / AskUser / ExitPlanMode 自动展开
+- [x] NotchWindow 三态 + 无刘海机型降级顶条（`notch.fallbackBarEnabled`）
+- [x] **PermissionRequest 气泡决策**：Allow / Deny / Ask（hook socket 同步回包）
+- [x] **AskUserQuestion 气泡答题**：选项按钮 + 自定义文本 + multiSelect 集合（hook 回包带 `updatedInput.answers`）
+- [x] **ExitPlanMode 气泡 plan-approval**：plan markdown 展示 + Approve / 继续规划（自定义反馈作为 deny reason）
+- [x] 偏好面板 8 Tab：Overview / Themes / Appearance / Bindings / Hooks / Behavior / Notifs / About
+- [x] HopetConfig 持久化（version / appearance / activeThemeId / listeners）
+- [x] 用户主题导入（manifest.json + 8 个 GIF；支持文件夹 / `.zip` 自动扫描）
+- [x] 像素风视觉系统（PixelChrome / PixelPalette / PixelTabBar / PixelToggle / PixelSegmentedControl / PixelDropSlot / PixelScrollThumb / PixelGridBackground）
+- [x] Hook 一键安装 / 卸载 + HookDoctor
+- [x] Listener 软静音 toggle（hooks 不动文件，仅在 EventRouter 静默丢事件）
 
-**Explicit out (v0.1 不交付)**：
+**v0.1 暂未交付（不阻塞 release，但记录）**：
 
-- ⛔ **气泡里自由打字往已有 session 注入消息**（详见 §12.5；macOS 无干净通用注入路径，需 PTY wrapper 或 IDE 扩展，留待后续版本评估）
-- ⛔ `.hopettheme` 第三方主题导入
-- ⛔ 按 AI 工具实例化多只宠物（v0.x 起统一为全局单只）
-- ⛔ Codex 细粒度状态（v0.1 仅完成通知实验性）
-- ⛔ MCP `Elicitation` / `ElicitationResult` 路由（v0.2 接入）
-- ⛔ Sparkle 自动更新
-- ⛔ `hopet` CLI 伴侣
+- ⛔ Onboarding 向导（features.md §8.1 规划，未实现）
+- ⛔ 通知中心横幅（NotificationsTab 当前只有 Toggle 占位，未真正注册 UserNotifications）
+- ⛔ 快捷键录制 / 全局快捷键（features.md §7）
+- ⛔ App 重启时 Session 恢复（已明确放弃，见 §7.3）
 
-### v0.2（增强 — 4–6 周）
+**Explicit out（架构上明确不做）**：
 
-- [ ] Codex 完整 hooks 适配（待 Codex 发布或 wrapper 方案）
-- [ ] 评估"气泡注入消息到已有 session"两条候选路径（PTY wrapper / IDE 扩展），择一落地
+- ⛔ **气泡里自由打字往已有 session 注入消息**（详见 §12.5；macOS 无干净通用注入路径，需 PTY wrapper 或 IDE 扩展）
+- ⛔ MCP `Elicitation` / `ElicitationResult` 路由（v0.2 评估）
+- ⛔ `.hopettheme` zip 分发（v0.3+）
+- ⛔ Sparkle 自动更新（v0.2+）
+- ⛔ `hopet` CLI 伴侣（v0.2+）
+- ⛔ `error-interrupted` 状态的有效事件源（保留枚举值；`PostToolUseFailure` 太常态，已停用对应转换，见 §7.1 注）
+
+### v0.2（增强）
+
 - [ ] MCP `Elicitation` / `ElicitationResult` 路由到 ask_user / ask_user_resolved
-- [ ] 气泡拖拽重排（用户自定义环绕顺序）
-- [ ] `.hopettheme` 导入 + 主题管理 UI（含 §9.3.1 zip slip 防护）
+- [ ] 评估"气泡注入消息到已有 session"两条候选路径（PTY wrapper / IDE 扩展），择一落地
+- [ ] 通知中心横幅真正联通（Permission / AskUser / Completed / Error 分类）
+- [ ] Onboarding 向导 + 权限引导
 - [ ] `hopet` CLI 伴侣（doctor / theme / send）
 - [ ] Sparkle 2 + EdDSA 签名
 
 ### v0.3（打磨）
 
+- [ ] `.hopettheme` zip 分发 + 解压安全校验（见 §9.4）
 - [ ] 主题制作指南 + 示例工程
 - [ ] 用户自定义状态 → 动画映射（偏好里编辑）
 - [ ] 声音反馈（完成 / 权限请求）
