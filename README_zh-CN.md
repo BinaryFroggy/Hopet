@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="./DevDocs/assets/hopi-cardboard-box-pixel.png" alt="Hopet" width="160" />
+  <img src="./devDocs/assets/hopi-cardboard-box-pixel.png" alt="Hopet" width="160" />
 </p>
 
 <h1 align="center">Hopet</h1>
@@ -97,10 +97,10 @@ Hopi 主题覆盖全部 8 个 `PetState`，下方每张 GIF 就是 App 内实际
 
 <table width="100%">
   <tr>
-    <td align="center" width="25%"><img src="./DevDocs/assets/HopiGif/seal-ask-user.gif" alt="Ask User" width="200" /></td>
-    <td align="center" width="25%"><img src="./DevDocs/assets/HopiGif/seal-permission-prompt.gif" alt="Permission Prompt" width="200" /></td>
-    <td align="center" width="25%"><img src="./DevDocs/assets/HopiGif/seal-error-interrupted.gif" alt="Error / Interrupted" width="200" /></td>
-    <td align="center" width="25%"><img src="./DevDocs/assets/HopiGif/seal-tool-use.gif" alt="Tool Use" width="200" /></td>
+    <td align="center" width="25%"><img src="./devDocs/assets/HopiGif/seal-ask-user.gif" alt="Ask User" width="200" /></td>
+    <td align="center" width="25%"><img src="./devDocs/assets/HopiGif/seal-permission-prompt.gif" alt="Permission Prompt" width="200" /></td>
+    <td align="center" width="25%"><img src="./devDocs/assets/HopiGif/seal-error-interrupted.gif" alt="Error / Interrupted" width="200" /></td>
+    <td align="center" width="25%"><img src="./devDocs/assets/HopiGif/seal-tool-use.gif" alt="Tool Use" width="200" /></td>
   </tr>
   <tr>
     <td align="center" width="25%"><b>Ask User</b></td>
@@ -109,10 +109,10 @@ Hopi 主题覆盖全部 8 个 `PetState`，下方每张 GIF 就是 App 内实际
     <td align="center" width="25%"><b>Tool Use</b></td>
   </tr>
   <tr>
-    <td align="center" width="25%"><img src="./DevDocs/assets/HopiGif/seal-thinking.gif" alt="Thinking" width="200" /></td>
-    <td align="center" width="25%"><img src="./DevDocs/assets/HopiGif/seal-responding.gif" alt="Responding" width="200" /></td>
-    <td align="center" width="25%"><img src="./DevDocs/assets/HopiGif/seal-completed.gif" alt="Completed" width="200" /></td>
-    <td align="center" width="25%"><img src="./DevDocs/assets/HopiGif/seal-idle.gif" alt="Idle" width="200" /></td>
+    <td align="center" width="25%"><img src="./devDocs/assets/HopiGif/seal-thinking.gif" alt="Thinking" width="200" /></td>
+    <td align="center" width="25%"><img src="./devDocs/assets/HopiGif/seal-responding.gif" alt="Responding" width="200" /></td>
+    <td align="center" width="25%"><img src="./devDocs/assets/HopiGif/seal-completed.gif" alt="Completed" width="200" /></td>
+    <td align="center" width="25%"><img src="./devDocs/assets/HopiGif/seal-idle.gif" alt="Idle" width="200" /></td>
   </tr>
   <tr>
     <td align="center" width="25%"><b>Thinking</b></td>
@@ -123,7 +123,7 @@ Hopi 主题覆盖全部 8 个 `PetState`，下方每张 GIF 就是 App 内实际
 </table>
 
 <p align="center">
-  <img src="./DevDocs/assets/hopi-permission.gif" alt="Hopi permission prompt" width="535" />
+  <img src="./devDocs/assets/hopi-permission.gif" alt="Hopi permission prompt" width="535" />
 </p>
 
 ## 快速开始
@@ -158,10 +158,10 @@ swift run hopet-emit --help  # 查看 CLI helper 支持的 flag
 
 ## 架构与协议
 
-- [DevDocs/architecture.md](./DevDocs/architecture.md)——状态机、聚合器、IPC 帧格式与模块边界
-- [DevDocs/features.md](./DevDocs/features.md)——功能清单与 UI 行为的详细说明
-- [DevDocs/hooks-and-priority.md](./DevDocs/hooks-and-priority.md)——hook 事件 schema 与优先级解析
-- [DevDocs/preferences.md](./DevDocs/preferences.md)——偏好项键值与主题导入契约
+- [devDocs/architecture.md](./devDocs/architecture.md)——状态机、聚合器、IPC 帧格式与模块边界
+- [devDocs/features.md](./devDocs/features.md)——功能清单与 UI 行为的详细说明
+- [devDocs/hooks-and-priority.md](./devDocs/hooks-and-priority.md)——hook 事件 schema 与优先级解析
+- [devDocs/preferences.md](./devDocs/preferences.md)——偏好项键值与主题导入契约
 
 ## 许可
 
