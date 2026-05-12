@@ -170,16 +170,20 @@ exact animation shipped with the app, in priority order.
   <img src="./DevDocs/assets/hopi-permission.gif" alt="Hopi permission prompt" width="535" />
 </p>
 
-## Getting started
+## Install
 
-Requirements: macOS 14+, Swift 5.10+.
+Requirements: macOS 14+ on Apple Silicon. (Intel builds are not shipped
+in 0.1.0 — build from source if you need one.)
 
-A single command brings everything up — the first run compiles both
-targets and launches the menu-bar app:
-
-```bash
-swift run Hopet
-```
+1. Download the latest `Hopet-<version>.dmg` from the
+   [Releases page](https://github.com/BinaryFroggy/Hopet/releases/latest).
+2. Open the DMG and drag **Hopet** into **Applications**.
+3. The release is **ad-hoc signed** (no Apple Developer ID). On first
+   launch macOS will block it with _"Hopet" can't be opened because Apple
+   cannot check it for malicious software._ To bypass:
+   - **Right-click** Hopet.app in Applications → **Open** → **Open** in
+     the confirmation dialog, **or**
+   - run once from Terminal: `xattr -dr com.apple.quarantine /Applications/Hopet.app`
 
 On first launch the app automatically installs hooks for every
 recognized AI tool (Claude Code, Codex CLI) and copies the
@@ -194,31 +198,33 @@ events without touching the hook files.
 
 Want a custom pet? Open the **Themes** tab, click _Import Theme…_, give
 it a name, and supply the matching animation GIFs. Single files, a
-folder, or a zip archive are all accepted.
+folder, or a zip archive are all accepted. The imported theme lands in
+`~/.hopet/themes/<id>/` and is selectable alongside Hopi.
 
-### Build artifacts & troubleshooting
+## Build from source
 
-The package produces two executables. You normally don't invoke either
-directly — `swift run Hopet` builds them, and the auto-install at first
-launch wires the helper up.
+Requirements: macOS 14+, Swift 5.10+ (Command Line Tools is enough).
+
+```bash
+swift run Hopet                  # build both targets and launch
+swift build                      # compile only
+swift run hopet-emit --help      # inspect the CLI helper's flags
+```
+
+To produce a redistributable DMG yourself:
+
+```bash
+scripts/build-release.sh 0.1.0               # host arch only
+scripts/build-release.sh 0.1.0 --universal   # arm64 + x86_64 (needs full Xcode)
+```
+
+Artifacts land in `dist/`. The package produces two executables:
 
 - **`Hopet`** — the main app. Resides in the menu bar; click the icon to
   open the preferences panel.
 - **`hopet-emit`** — length-prefixed JSON frame delivery tool. Installed
   at `~/.hopet/bin/hopet-emit` and invoked by Claude Code / Codex CLI
   hooks.
-
-Useful when something looks off:
-
-```bash
-swift build                  # compile both targets without launching
-swift run hopet-emit --help  # inspect the CLI helper's flags
-```
-
-To use a custom pet, open the **Themes** tab, click _Import Theme…_, give
-it a name, and supply the matching animation GIFs — single files, a
-folder, or a zip archive are all accepted. The imported theme lands in
-`~/.hopet/themes/<id>/` and is selectable alongside Hopi.
 
 ## Architecture & protocol
 

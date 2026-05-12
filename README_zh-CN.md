@@ -126,35 +126,43 @@ Hopi 主题覆盖全部 8 个 `PetState`，下方每张 GIF 就是 App 内实际
   <img src="./DevDocs/assets/hopi-permission.gif" alt="Hopi permission prompt" width="535" />
 </p>
 
-## 快速开始
+## 安装
 
-环境要求：macOS 14+，Swift 5.10+。
+环境要求：macOS 14+，Apple Silicon。（0.1.0 暂不提供 Intel 二进制，需要请从源码自行编译。）
 
-一条命令搞定——首次运行会自动编译两个 target 并启动 App：
-
-```bash
-swift run Hopet
-```
+1. 从 [Releases 页面](https://github.com/BinaryFroggy/Hopet/releases/latest) 下载最新的 `Hopet-<version>.dmg`。
+2. 打开 DMG，把 **Hopet** 拖进 **Applications**。
+3. 当前发布版本使用 **ad-hoc 签名**（无 Apple Developer ID），首次打开会被 macOS 拦截，提示「无法打开 Hopet，因为 Apple 无法检查其是否包含恶意软件」。两种绕过方式任选其一：
+   - 在 Applications 里**右键** Hopet.app → **打开** → 弹窗里再点一次**打开**；
+   - 终端执行一次：`xattr -dr com.apple.quarantine /Applications/Hopet.app`
 
 首次启动时 App 会自动给所有识别到的 AI 工具（Claude Code、Codex CLI）安装 hooks，并把 `hopet-emit` helper 复制到 `~/.hopet/bin/`。Merge 是非破坏性的——`~/.claude/settings.json` 与 `~/.codex/hooks.json` 里已有的 hook 都会保留。后续启动检测到已安装则直接跳过。
 
 偏好面板的 **Hooks** Tab 用来查看安装状态、跑诊断 Doctor、以及给每个工具单独做 listener 软静音（不动 hook 文件，仅在 EventRouter 入口丢事件）。
 
-想换一只自己的宠物，进 **Themes** Tab，点 _Import Theme…_，填一个名字，准备好对应的动画 GIF 图即可，支持单张 / 文件夹 / 压缩包上传方式。
+想换一只自己的宠物，进 **Themes** Tab，点 _Import Theme…_，填一个名字，准备好对应的动画 GIF 图即可，支持单张 / 文件夹 / 压缩包上传方式，主题会落在 `~/.hopet/themes/<id>/`，与内置 Hopi 并列。
 
-### 构建产物与故障排查
+## 从源码构建
 
-工程会产出两个可执行文件，日常用的时候不需要手动调用——`swift run Hopet` 自动 build，首次启动会顺手把 helper 安装到位。
+环境要求：macOS 14+，Swift 5.10+（Command Line Tools 即可）。
+
+```bash
+swift run Hopet                  # 编译并启动
+swift build                      # 只编译，不启动
+swift run hopet-emit --help      # 查看 CLI helper 支持的 flag
+```
+
+自己打包一份可分发的 DMG：
+
+```bash
+scripts/build-release.sh 0.1.0               # 仅本机架构
+scripts/build-release.sh 0.1.0 --universal   # arm64 + x86_64 通用二进制（需完整 Xcode）
+```
+
+产物落在 `dist/`。工程会产出两个可执行文件：
 
 - **`Hopet`**——主 App，启动后驻留菜单栏，点击图标打开偏好面板
 - **`hopet-emit`**——长度前缀 JSON 帧投递工具，安装到 `~/.hopet/bin/hopet-emit`，由 Claude Code / Codex CLI 的 hook 自动调用
-
-排查问题时可能用到：
-
-```bash
-swift build                  # 只编译两个 target，不启动 App
-swift run hopet-emit --help  # 查看 CLI helper 支持的 flag
-```
 
 ## 架构与协议
 
