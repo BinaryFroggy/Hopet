@@ -152,18 +152,6 @@ swift build                      # 只编译，不启动
 swift run hopet-emit --help      # 查看 CLI helper 支持的 flag
 ```
 
-自己打包一份可分发的 DMG：
-
-```bash
-scripts/build-release.sh 0.1.0               # 仅本机架构
-scripts/build-release.sh 0.1.0 --universal   # arm64 + x86_64 通用二进制（需完整 Xcode）
-```
-
-产物落在 `dist/`。工程会产出两个可执行文件：
-
-- **`Hopet`**——主 App，启动后驻留菜单栏，点击图标打开偏好面板
-- **`hopet-emit`**——长度前缀 JSON 帧投递工具，安装到 `~/.hopet/bin/hopet-emit`，由 Claude Code / Codex CLI 的 hook 自动调用
-
 ## 架构与协议
 
 - [DevDocs/architecture.md](./DevDocs/architecture.md)——状态机、聚合器、IPC 帧格式与模块边界

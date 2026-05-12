@@ -211,21 +211,6 @@ swift build                      # compile only
 swift run hopet-emit --help      # inspect the CLI helper's flags
 ```
 
-To produce a redistributable DMG yourself:
-
-```bash
-scripts/build-release.sh 0.1.0               # host arch only
-scripts/build-release.sh 0.1.0 --universal   # arm64 + x86_64 (needs full Xcode)
-```
-
-Artifacts land in `dist/`. The package produces two executables:
-
-- **`Hopet`** — the main app. Resides in the menu bar; click the icon to
-  open the preferences panel.
-- **`hopet-emit`** — length-prefixed JSON frame delivery tool. Installed
-  at `~/.hopet/bin/hopet-emit` and invoked by Claude Code / Codex CLI
-  hooks.
-
 ## Architecture & protocol
 
 - [DevDocs/architecture.md](./DevDocs/architecture.md) — state machine,
