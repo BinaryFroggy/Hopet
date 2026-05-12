@@ -123,13 +123,15 @@ Hopi 主题覆盖全部 8 个 `PetState`，下方每张 GIF 就是 App 内实际
 swift run Hopet
 ```
 
-App 起来后，去 **Hooks** Tab 给 Claude Code（以及 Codex，如果你用的话）点一下 _Install_。安装是非破坏性的，可以随时在同一面板撤销；这一步也会把 `hopet-emit` helper 复制到 `~/.hopet/bin/`。
+首次启动时 App 会自动给所有识别到的 AI 工具（Claude Code、Codex CLI）安装 hooks，并把 `hopet-emit` helper 复制到 `~/.hopet/bin/`。Merge 是非破坏性的——`~/.claude/settings.json` 与 `~/.codex/hooks.json` 里已有的 hook 都会保留。后续启动检测到已安装则直接跳过。
+
+偏好面板的 **Hooks** Tab 用来查看安装状态、跑诊断 Doctor、以及给每个工具单独做 listener 软静音（不动 hook 文件，仅在 EventRouter 入口丢事件）。
 
 想换一只自己的宠物，进 **Themes** Tab，点 _Import Theme…_，填一个名字，选好 8 张 GIF（每个状态一张）即可。
 
 ### 构建产物与故障排查
 
-工程会产出两个可执行文件，日常用的时候不需要手动调用——`swift run Hopet` 自动 build，Hooks Tab 的安装步骤会把 helper 落到位。
+工程会产出两个可执行文件，日常用的时候不需要手动调用——`swift run Hopet` 自动 build，首次启动会顺手把 helper 安装到位。
 
 - **`Hopet`**——主 App，启动后驻留菜单栏，点击图标打开偏好面板
 - **`hopet-emit`**——长度前缀 JSON 帧投递工具，安装到 `~/.hopet/bin/hopet-emit`，由 Claude Code / Codex CLI 的 hook 自动调用

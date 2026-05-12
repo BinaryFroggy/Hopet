@@ -162,10 +162,16 @@ targets and launches the menu-bar app:
 swift run Hopet
 ```
 
-Once the app is running, head to the **Hooks** tab and click _Install_
-for Claude Code (and Codex, if you use it). The merge is non-destructive
-and fully reversible from the same panel; this is also the step that
-copies the `hopet-emit` helper to `~/.hopet/bin/`.
+On first launch the app automatically installs hooks for every
+recognized AI tool (Claude Code, Codex CLI) and copies the
+`hopet-emit` helper to `~/.hopet/bin/`. The merge is non-destructive
+— existing hooks in `~/.claude/settings.json` and `~/.codex/hooks.json`
+are preserved. Subsequent launches skip the step if the hooks are
+already in place.
+
+The **Hooks** tab in Preferences shows install status, runs the
+diagnostic Doctor, and offers per-tool listener toggles for soft-muting
+events without touching the hook files.
 
 Want a custom pet? Open the **Themes** tab, click _Import Theme…_, give
 it a name, and pick eight GIFs (one per state).
@@ -173,8 +179,8 @@ it a name, and pick eight GIFs (one per state).
 ### Build artifacts & troubleshooting
 
 The package produces two executables. You normally don't invoke either
-directly — `swift run Hopet` builds them, and the install step in the
-Hooks tab wires the helper up.
+directly — `swift run Hopet` builds them, and the auto-install at first
+launch wires the helper up.
 
 - **`Hopet`** — the main app. Resides in the menu bar; click the icon to
   open the preferences panel.
