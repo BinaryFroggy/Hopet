@@ -7,16 +7,33 @@ import UniformTypeIdentifiers
 struct ThemesTab: View {
     @ObservedObject var themes: ThemeStore
     @State private var showImporter = false
+    @State private var showHelp = false
     @State private var pendingDelete: ThemePackage?
 
     var body: some View {
         PreferencesPaneScaffold("Pet Themes") {
-            Button {
-                showImporter = true
-            } label: {
-                Label("Import Theme…", systemImage: "square.and.arrow.down")
+            HStack(spacing: 8) {
+                Button {
+                    showImporter = true
+                } label: {
+                    Label("Import Theme…", systemImage: "square.and.arrow.down")
+                }
+                .buttonStyle(PixelButtonStyle(tint: PixelPalette.mint, prominent: true))
+
+                Button {
+                    showHelp = true
+                } label: {
+                    Image(systemName: "questionmark.circle")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .buttonStyle(.borderless)
+                .help("What to put in a theme folder or .zip")
+                .popover(isPresented: $showHelp, arrowEdge: .top) {
+                    ThemeImportHelpContent()
+                }
+
+                Spacer()
             }
-            .buttonStyle(PixelButtonStyle(tint: PixelPalette.mint, prominent: true))
 
             ForEach(themes.themes, id: \.id) { theme in
                 ThemeRow(
@@ -159,6 +176,10 @@ private struct ThemeImportSheet: View {
     @State private var name: String = ""
     @State private var gifs: [PetState: URL] = [:]
     @State private var errorMessage: String?
+    /// 文件夹/压缩包扫描留下的提示与告警（成功也可能伴随警告，例如同 state 多个候选）。
+    @State private var scanIssues: [String] = []
+    /// 解压 zip 时的临时目录，sheet 关闭时一并清理。
+    @State private var temporaryRoot: URL?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -179,6 +200,19 @@ private struct ThemeImportSheet: View {
                 }
             }
 
+            HStack(spacing: 8) {
+                Button {
+                    pickFolderOrArchive()
+                } label: {
+                    Label("Choose Folder / Zip…", systemImage: "folder")
+                }
+                .buttonStyle(PixelButtonStyle(tint: PixelPalette.sky, prominent: false))
+                Text("Auto-fills slots from a folder of GIFs or a .zip archive.")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+
             ScrollView {
                 LazyVGrid(
                     columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
@@ -190,31 +224,26 @@ private struct ThemeImportSheet: View {
                 }
                 .padding(.vertical, 4)
             }
-            .frame(maxHeight: 300)
+            .frame(maxHeight: 260)
 
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else if !missingStates.isEmpty {
-                Text("Missing: \(missingStates.map(\.rawValue).joined(separator: ", "))")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.secondary)
-            }
+            statusFooter
 
             HStack {
                 Spacer()
-                Button("Cancel") { dismiss() }
-                    .buttonStyle(PixelButtonStyle(tint: .gray, prominent: false))
+                Button("Cancel") {
+                    cleanupTemporary()
+                    dismiss()
+                }
+                .buttonStyle(PixelButtonStyle(tint: .gray, prominent: false))
                 Button("Import") { runImport() }
                     .buttonStyle(PixelButtonStyle(tint: PixelPalette.mint, prominent: true))
                     .disabled(!canImport)
             }
         }
         .padding(16)
-        .frame(width: 520)
+        .frame(width: 540)
         .background(PixelGridBackground())
+        .onDisappear { cleanupTemporary() }
     }
 
     @Environment(\.colorScheme) private var colorScheme
@@ -227,13 +256,160 @@ private struct ThemeImportSheet: View {
         !name.trimmingCharacters(in: .whitespaces).isEmpty && missingStates.isEmpty
     }
 
+    @ViewBuilder
+    private var statusFooter: some View {
+        // 三段优先级：error > scanIssues > missing 提示
+        if let errorMessage {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(errorMessage)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.red)
+                if !scanIssues.isEmpty {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(scanIssues, id: \.self) { issue in
+                                Text("• \(issue)")
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 70)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else if !scanIssues.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Scan warnings:")
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.orange)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(scanIssues, id: \.self) { issue in
+                            Text("• \(issue)")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .frame(maxHeight: 70)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else if !missingStates.isEmpty {
+            Text("Missing: \(missingStates.map(\.rawValue).joined(separator: ", "))")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
     private func runImport() {
         do {
             try onImport(UserThemeImporter.DraftTheme(name: name, gifs: gifs))
+            cleanupTemporary()
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func pickFolderOrArchive() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.folder, .zip]
+        // macOS Sonoma 起 .folder + .zip 同时允许时面板默认拒绝目录；显式 enable。
+        panel.treatsFilePackagesAsDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        applyScan(url: url)
+    }
+
+    private func applyScan(url: URL) {
+        // 重新扫描前清理上一次留下的临时目录。
+        cleanupTemporary()
+        errorMessage = nil
+        scanIssues = []
+        do {
+            let scan = try UserThemeImporter.scanDirectoryOrArchive(url)
+            // 把找到的槽位填进 gifs；保留用户原先手动选过的（避免覆盖意图）。
+            for (state, src) in scan.gifs {
+                if gifs[state] == nil { gifs[state] = src }
+            }
+            scanIssues = scan.issues
+            temporaryRoot = scan.temporaryRoot
+            if name.trimmingCharacters(in: .whitespaces).isEmpty {
+                name = scan.suggestedName
+            }
+            if !scan.missing.isEmpty {
+                // 不是 fatal——missing 在 footer 已有专门提示位，但仍把当前文件夹缺哪几个写进 issues。
+                scanIssues.insert(
+                    "Folder/archive is missing: \(scan.missing.map(\.rawValue).joined(separator: ", "))",
+                    at: 0
+                )
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func cleanupTemporary() {
+        if let temporaryRoot {
+            try? FileManager.default.removeItem(at: temporaryRoot)
+        }
+        temporaryRoot = nil
+    }
+}
+
+/// "?" popover 内容：说明文件夹/压缩包导入需要准备的资源与命名规则。
+private struct ThemeImportHelpContent: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Theme package requirements")
+                .font(.system(size: 12, weight: .bold, design: .monospaced))
+
+            Text("Each theme needs 8 GIFs, one per pet state:")
+                .font(.system(size: 11, design: .monospaced))
+
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(PetState.allCases, id: \.self) { state in
+                    HStack(spacing: 6) {
+                        Circle().fill(state.accentColor).frame(width: 6, height: 6)
+                        Text("\(state.rawValue).gif")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.primary)
+                    }
+                }
+            }
+            .padding(.leading, 4)
+
+            Divider()
+
+            Text("Folder import")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            Text("Pick a folder or a .zip that contains the GIFs at the top level (one level of nesting is also accepted). __MACOSX and hidden files are ignored.")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text("Name matching")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            Text("Case, hyphens, underscores and spaces are ignored when matching: \"Tool Use.gif\", \"tool_use.gif\" and \"tool-use.gif\" all map to tool-use.")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text("GIF requirements")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            Text("Real GIF format (not just a renamed file) with at least one frame. Files with non-GIF content or unrecognized names are reported in the import panel.")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .frame(width: 360, alignment: .leading)
     }
 }
 
