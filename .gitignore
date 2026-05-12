@@ -44,3 +44,9 @@ emit-debug.log
 
 # 日志
 *.log
+
+# Obsidian vault 元数据（本仓库被作为 Obsidian vault 打开时生成）
+.obsidian/
+
+# 本地草稿与实验产物
+tmp/
