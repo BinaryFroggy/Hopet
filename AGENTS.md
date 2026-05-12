@@ -8,7 +8,7 @@ macOS 桌面 AI 宠物，将 Claude Code / Codex CLI 的会话生命周期映射
 
 ## 1. 文档
 
-- 架构、状态机、优先级、hook 协议的事实之源在 `devDocs/`。注释引用使用章节级指引，例如 `See architecture.md §7.1`。
+- 架构、状态机、优先级、hook 协议的事实之源在 `DevDocs/`。注释引用使用章节级指引，例如 `See architecture.md §7.1`。
 - 注释解释意图与约束，不复述代码。
 - README 仅描述已实现能力。未实现项需明确标注。
 
@@ -51,7 +51,7 @@ macOS 桌面 AI 宠物，将 Claude Code / Codex CLI 的会话生命周期映射
 ### 2.4 IPC 与 Hook 协议
 
 - 跨进程消息统一使用长度前缀 JSON 帧，编解码集中在 `IPC/`。业务代码不得自行拼装字节。
-- 新增 hook 字段需先更新 `devDocs/hooks-and-priority.md` 字段表，再修改 `hopet-emit` 的 flag 解析与 `HookKit` 的 settings merge。代码与文档同 PR 提交。
+- 新增 hook 字段需先更新 `DevDocs/hooks-and-priority.md` 字段表，再修改 `hopet-emit` 的 flag 解析与 `HookKit` 的 settings merge。代码与文档同 PR 提交。
 - Permission Allow/Deny 与 AskUserQuestion 同步回包是协议级承诺。修改这两条路径需保留跨终端宿主兼容性。
 
 ## 3. 测试与构建
@@ -88,7 +88,7 @@ macOS 桌面 AI 宠物，将 Claude Code / Codex CLI 的会话生命周期映射
 | `fix`      | 修复 bug                      |
 | `refactor` | 不改变外部行为的内部重构                |
 | `perf`     | 性能优化                        |
-| `docs`     | 文档变更（README / devDocs / 注释） |
+| `docs`     | 文档变更（README / DevDocs / 注释） |
 | `test`     | 仅增补或修复测试                    |
 | `build`    | 构建系统、`Package.swift`、产物路径   |
 | `ci`       | CI 配置                       |
@@ -116,7 +116,7 @@ scope 与源码目录或职责对齐，全小写。可用值：
 ### 4.5 body
 
 - 解释变更动机与权衡，不解释实现细节。
-- 涉及 `devDocs/` 决策时引用章节，例如 `See devDocs/architecture.md §7.1`。
+- 涉及 `DevDocs/` 决策时引用章节，例如 `See DevDocs/architecture.md §7.1`。
 - 删除能力的提交，正文须说明删除原因。
 
 ### 4.6 footer
@@ -137,7 +137,7 @@ Replace the flat circle with a layered gradient and animate state
 changes with a brief burst. Permission and AskUser bubbles stay
 pinned until resolved.
 
-See devDocs/features.md §4.3.
+See DevDocs/features.md §4.3.
 ```
 
 ```
@@ -154,7 +154,7 @@ refactor(core)!: rename SessionStateMachine.transition to nextState
 
 BREAKING CHANGE: callers using `transition(from:event:)` must migrate
 to `nextState(from:event:)`. The new name reflects the pure-function
-semantics described in devDocs/architecture.md §7.1.
+semantics described in DevDocs/architecture.md §7.1.
 ```
 
 不接受：
@@ -178,8 +178,8 @@ WIP                                # 不接受 WIP 提交
 
 ## 5. AI Agent 协作规则
 
-- 改动代码前先读 `devDocs/` 对应章节。状态机、聚合器、hook 协议的语义在文档中，凭直觉修改可能破坏跨 session 不变量。
-- 不得新建 `*.md` 文件，除非人类明确要求。新增内容应合并入 `devDocs/` 既有文档。
+- 改动代码前先读 `DevDocs/` 对应章节。状态机、聚合器、hook 协议的语义在文档中，凭直觉修改可能破坏跨 session 不变量。
+- 不得新建 `*.md` 文件，除非人类明确要求。新增内容应合并入 `DevDocs/` 既有文档。
 - UI 改动须本机验证：`swift run Hopet` 启动进程并触发对应 hook 路径，确认行为后再标记完成。`swift build` 通过不构成验证。
 - 高风险操作须人类显式确认：删除文件、重命名目录、修改 `Package.swift` 拓扑、修改 hook 协议字段。
 

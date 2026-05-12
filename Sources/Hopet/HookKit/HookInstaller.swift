@@ -139,7 +139,7 @@ public final class HookInstaller {
     //
     // Codex CLI 0.129.0+ 用 `~/.codex/hooks.json` 注册生命周期 hook（需 features.codex_hooks）。
     // 安装时顺手清掉 config.toml 里 v0.1 留下的 [notify] 块，避免 stop 事件双发触发两次
-    // completed 切换。See devDocs/hooks-and-priority.md.
+    // completed 切换。See DevDocs/hooks-and-priority.md.
 
     private func installCodex() throws -> URL {
         try FileManager.default.createDirectory(at: codexHooksFile.deletingLastPathComponent(),

@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="./devDocs/assets/hopi-cardboard-box-pixel.png" alt="Hopet" width="160" />
+  <img src="./DevDocs/assets/hopi-cardboard-box-pixel.png" alt="Hopet" width="160" />
 </p>
 
 <h1 align="center">Hopet</h1>
@@ -141,10 +141,10 @@ exact animation shipped with the app, in priority order.
 
 <table width="100%">
   <tr>
-    <td align="center" width="25%"><img src="./devDocs/assets/HopiGif/seal-ask-user.gif" alt="Ask User" width="200" /></td>
-    <td align="center" width="25%"><img src="./devDocs/assets/HopiGif/seal-permission-prompt.gif" alt="Permission Prompt" width="200" /></td>
-    <td align="center" width="25%"><img src="./devDocs/assets/HopiGif/seal-error-interrupted.gif" alt="Error / Interrupted" width="200" /></td>
-    <td align="center" width="25%"><img src="./devDocs/assets/HopiGif/seal-tool-use.gif" alt="Tool Use" width="200" /></td>
+    <td align="center" width="25%"><img src="./DevDocs/assets/HopiGif/seal-ask-user.gif" alt="Ask User" width="200" /></td>
+    <td align="center" width="25%"><img src="./DevDocs/assets/HopiGif/seal-permission-prompt.gif" alt="Permission Prompt" width="200" /></td>
+    <td align="center" width="25%"><img src="./DevDocs/assets/HopiGif/seal-error-interrupted.gif" alt="Error / Interrupted" width="200" /></td>
+    <td align="center" width="25%"><img src="./DevDocs/assets/HopiGif/seal-tool-use.gif" alt="Tool Use" width="200" /></td>
   </tr>
   <tr>
     <td align="center" width="25%"><b>Ask User</b></td>
@@ -153,10 +153,10 @@ exact animation shipped with the app, in priority order.
     <td align="center" width="25%"><b>Tool Use</b></td>
   </tr>
   <tr>
-    <td align="center" width="25%"><img src="./devDocs/assets/HopiGif/seal-thinking.gif" alt="Thinking" width="200" /></td>
-    <td align="center" width="25%"><img src="./devDocs/assets/HopiGif/seal-responding.gif" alt="Responding" width="200" /></td>
-    <td align="center" width="25%"><img src="./devDocs/assets/HopiGif/seal-completed.gif" alt="Completed" width="200" /></td>
-    <td align="center" width="25%"><img src="./devDocs/assets/HopiGif/seal-idle.gif" alt="Idle" width="200" /></td>
+    <td align="center" width="25%"><img src="./DevDocs/assets/HopiGif/seal-thinking.gif" alt="Thinking" width="200" /></td>
+    <td align="center" width="25%"><img src="./DevDocs/assets/HopiGif/seal-responding.gif" alt="Responding" width="200" /></td>
+    <td align="center" width="25%"><img src="./DevDocs/assets/HopiGif/seal-completed.gif" alt="Completed" width="200" /></td>
+    <td align="center" width="25%"><img src="./DevDocs/assets/HopiGif/seal-idle.gif" alt="Idle" width="200" /></td>
   </tr>
   <tr>
     <td align="center" width="25%"><b>Thinking</b></td>
@@ -167,7 +167,7 @@ exact animation shipped with the app, in priority order.
 </table>
 
 <p align="center">
-  <img src="./devDocs/assets/hopi-permission.gif" alt="Hopi permission prompt" width="535" />
+  <img src="./DevDocs/assets/hopi-permission.gif" alt="Hopi permission prompt" width="535" />
 </p>
 
 ## Getting started
@@ -222,13 +222,13 @@ folder, or a zip archive are all accepted. The imported theme lands in
 
 ## Architecture & protocol
 
-- [devDocs/architecture.md](./devDocs/architecture.md) — state machine,
+- [DevDocs/architecture.md](./DevDocs/architecture.md) — state machine,
   aggregator, IPC framing, and module boundaries
-- [devDocs/features.md](./devDocs/features.md) — feature inventory and UI
+- [DevDocs/features.md](./DevDocs/features.md) — feature inventory and UI
   behavior in depth
-- [devDocs/hooks-and-priority.md](./devDocs/hooks-and-priority.md) — hook
+- [DevDocs/hooks-and-priority.md](./DevDocs/hooks-and-priority.md) — hook
   event schema and priority resolution
-- [devDocs/preferences.md](./devDocs/preferences.md) — preference keys
+- [DevDocs/preferences.md](./DevDocs/preferences.md) — preference keys
   and theme import contract
 
 ## License
