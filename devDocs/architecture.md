@@ -136,7 +136,7 @@ flowchart TD
 | IPC | **Network.framework** `NWListener` (Unix path) | 苹果推荐、无第三方依赖、内建 TLS（本场景不需要但可选）。 |
 | 并发 | **Swift Concurrency** + **Combine** 做状态广播 | `SessionRegistry` / `PetAggregator` 等核心组件标 `@MainActor`；UI 订阅用 Combine `PassthroughSubject` / `@Published`。 |
 | 持久化 | `JSONEncoder` + 文件 | 仅 `~/.hopet/config.json`（偏好）与 `~/.hopet/themes/<id>/manifest.json`（用户主题元数据）。Session state 不落盘（见 §7.3）。 |
-| 主题压缩 | 系统 `/usr/bin/unzip` (Process) | 用户主题 `.zip` 自动扫描时调用，避免引第三方 SPM 依赖。 |
+| 主题压缩 | 系统 `/usr/bin/ditto` (Process) | 用户主题 `.zip` 自动扫描时调用，避免引第三方 SPM 依赖。`ditto -x -k` 在 macOS 上的 zip 兼容性比 `/usr/bin/unzip` 更稳，对 macOS App 打包流派（含 `__MACOSX` 资源叉）兼容。 |
 | 命令行参数（hopet-emit / 未来 hopet CLI 伴侣） | 自实现的 flag 解析（`Sources/hopet-emit/main.swift`） | 二进制要尽可能小、零依赖（hook 每次触发都会 fork-exec 一次），用不上 swift-argument-parser。 |
 
 ### 4.2 最低系统要求
@@ -160,7 +160,7 @@ flowchart TD
 
 ### 4.4 依赖清单
 
-`Package.swift` 的 `dependencies: []` 仍为空。Hopet 与 hopet-emit 都只依赖系统框架（AppKit / SwiftUI / Combine / Network / UserNotifications / ImageIO）。zip 解压走 `/usr/bin/unzip` 子进程，主题预览走 `ImageIO`，不引入 ZIPFoundation 或 Sparkle——零依赖是 v0.1 的硬约束，新增依赖须在 PR 描述中说明理由并经人类同意（见 AGENTS.md §3）。
+`Package.swift` 的 `dependencies: []` 仍为空。Hopet 与 hopet-emit 都只依赖系统框架（AppKit / SwiftUI / Combine / Network / UserNotifications / ImageIO）。zip 解压走 `/usr/bin/ditto` 子进程，主题预览走 `ImageIO`，不引入 ZIPFoundation 或 Sparkle——零依赖是 v0.1 的硬约束，新增依赖须在 PR 描述中说明理由并经人类同意（见 AGENTS.md §3）。
 
 ---
 

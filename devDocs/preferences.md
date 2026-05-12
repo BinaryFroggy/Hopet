@@ -198,7 +198,7 @@ public struct ThemePackage {
 `Sources/Hopet/Theme/UserThemeImporter.swift` 提供 `DirectoryScan(suggestedName, gifs, missing, issues, tmpDirToCleanUp?)`：
 
 - 用户在 ThemesTab 点 "Import Theme…" 后，可以**整个拖入**一个文件夹或 `.zip` 文件
-- `.zip` 走 `/usr/bin/unzip` 解到 `_staging/<uuid>/` 临时目录；scan 结束后由调用方清理
+- `.zip` 走 `/usr/bin/ditto -x -k` 解到 `_staging/<uuid>/` 临时目录；scan 结束后由调用方清理
 - 命名匹配在「忽略大小写、忽略 `-` / `_` / 空格」后比对 `PetState.rawValue`，所以 `idle.gif` / `IDLE.gif` / `Idle.GIF` / `tool-use.gif` / `tool_use.gif` / `Tool Use.gif` 都能识别
 - 一个状态出现多个候选时按字母序取第一个、其余记入 `issues`
 - 不识别 / 非 `.gif` 的文件也记入 `issues`，sheet 底部以折叠列表展示
