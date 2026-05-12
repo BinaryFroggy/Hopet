@@ -36,6 +36,19 @@ Hopet 让本来隐藏在命令行里的 agent 生命周期变得更清楚、更�
 
 发布版默认使用内置的 **Hopi 主题**——一只可爱的像素风小海豹，每个状态对应一段动画；如果你想换一只自己的宠物，只要给你的宠物准备一个名字和8张GIF图片拖进去即可。
 
+## 支持的 AI 工具
+
+Hopet 通过 agent CLI 的生命周期 hook 工作，目前覆盖以下 4 种用法：
+
+- **Claude Code**——在任意终端里跑 `claude` CLI
+- **Claude Code for VS Code**——官方 VS Code 扩展
+- **Codex CLI**——在任意终端里跑 `codex` CLI
+- **Codex VS Code Extension**——官方 VS Code 扩展
+
+由于一切都走 `~/.claude/settings.json` 和 `~/.codex/hooks.json` 这两份 hook，所以宿主不影响行为：Apple Terminal、iTerm2、Ghostty、Warp、VS Code / Cursor 的内嵌终端等任一环境表现一致。
+
+不支持：浏览器版 Claude（claude.ai）；以及非 Claude Code / Codex 的 AI agent（GitHub Copilot Chat、Gemini CLI、Aider 等）。
+
 ## 功能
 
 ### 会话感知
@@ -127,7 +140,7 @@ swift run Hopet
 
 偏好面板的 **Hooks** Tab 用来查看安装状态、跑诊断 Doctor、以及给每个工具单独做 listener 软静音（不动 hook 文件，仅在 EventRouter 入口丢事件）。
 
-想换一只自己的宠物，进 **Themes** Tab，点 _Import Theme…_，填一个名字，选好 8 张 GIF（每个状态一张）即可。
+想换一只自己的宠物，进 **Themes** Tab，点 _Import Theme…_，填一个名字，准备好对应的动画 GIF 图即可，支持单张 / 文件夹 / 压缩包上传方式。
 
 ### 构建产物与故障排查
 
@@ -152,4 +165,4 @@ swift run hopet-emit --help  # 查看 CLI helper 支持的 flag
 
 ## 许可
 
-许可信息见仓库根目录。
+本项目以 [MIT License](./LICENSE) 发布。© 2026 BinaryFroggy。

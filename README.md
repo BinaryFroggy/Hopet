@@ -46,6 +46,25 @@ The release ships with the built-in **Hopi** theme: a hand-drawn pixel
 seal with one animation per state. Prefer a different pet? Bring your own
 with a name and eight GIFs.
 
+## Supported AI tools
+
+Hopet works through the lifecycle hooks of the agent CLIs, so the
+following four entry points are covered:
+
+- **Claude Code** — the `claude` CLI in any terminal
+- **Claude Code for VS Code** — the official VS Code extension
+- **Codex CLI** — the `codex` CLI in any terminal
+- **Codex VS Code Extension** — the official VS Code extension
+
+Because everything runs through the same `~/.claude/settings.json` and
+`~/.codex/hooks.json` hooks, the host on top doesn't matter: Apple
+Terminal, iTerm2, Ghostty, Warp, the embedded terminal of VS Code or
+Cursor — they all behave the same.
+
+Not supported: the browser version of Claude at claude.ai, and any
+agent that isn't Claude Code or Codex (GitHub Copilot Chat, Gemini CLI,
+Aider, etc.).
+
 ## Features
 
 ### Session awareness
@@ -174,7 +193,8 @@ diagnostic Doctor, and offers per-tool listener toggles for soft-muting
 events without touching the hook files.
 
 Want a custom pet? Open the **Themes** tab, click _Import Theme…_, give
-it a name, and pick eight GIFs (one per state).
+it a name, and supply the matching animation GIFs. Single files, a
+folder, or a zip archive are all accepted.
 
 ### Build artifacts & troubleshooting
 
@@ -196,8 +216,9 @@ swift run hopet-emit --help  # inspect the CLI helper's flags
 ```
 
 To use a custom pet, open the **Themes** tab, click _Import Theme…_, give
-it a name, and pick eight GIFs (one per state). The imported theme lands
-in `~/.hopet/themes/<id>/` and is selectable alongside Hopi.
+it a name, and supply the matching animation GIFs — single files, a
+folder, or a zip archive are all accepted. The imported theme lands in
+`~/.hopet/themes/<id>/` and is selectable alongside Hopi.
 
 ## Architecture & protocol
 
@@ -212,4 +233,4 @@ in `~/.hopet/themes/<id>/` and is selectable alongside Hopi.
 
 ## License
 
-See repository for license details.
+Released under the [MIT License](./LICENSE). © 2026 BinaryFroggy.
