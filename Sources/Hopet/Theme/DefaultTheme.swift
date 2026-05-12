@@ -8,7 +8,7 @@ public enum DefaultTheme {
         name: "Hopi",
         version: "0.1.0",
         author: "Hopet Team",
-        description: "默认主题：所有 PetState 使用像素风小海豹动画。",
+        description: "Default theme: pixel-art seal animations for every PetState.",
         glyphs: [
             .idle:             "🦭 zZz",
             .responding:       "🦭 ⌨️",

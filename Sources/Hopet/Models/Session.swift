@@ -182,11 +182,11 @@ public struct Session: Codable, Identifiable, Hashable, Sendable {
     }
 
     /// 上一个状态持续了多久 / 距完成多久。
-    /// - 运行中：返回 "已运行 5m"
-    /// - 闲置/已完成/错误：返回 "5m 前"
+    /// - 运行中：返回 "running 5m"
+    /// - 闲置/已完成/错误：返回 "5m ago"
     public func stateDurationPhrase(now: Date = Date()) -> String {
         let unit = elapsedDescription(now: now)
-        return currentState.isRunning ? "已运行 \(unit)" : "\(unit) 前"
+        return currentState.isRunning ? "running \(unit)" : "\(unit) ago"
     }
 
     private static func humanDuration(_ seconds: Int) -> String {

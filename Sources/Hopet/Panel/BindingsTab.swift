@@ -10,7 +10,7 @@ struct BindingsTab: View {
         PreferencesPaneScaffold("Bindings") {
             PixelCard("GLOBAL THEME", titleTint: PixelPalette.sky) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Hopet 现在全局只有一只宠物，所有 AI 工具共用此主题。")
+                    Text("Hopet now has a single global pet; all AI tools share this theme.")
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
                     Picker("", selection: $themes.activeThemeId) {

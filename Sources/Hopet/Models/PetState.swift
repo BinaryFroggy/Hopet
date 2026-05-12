@@ -71,13 +71,13 @@ public enum PetState: String, Codable, CaseIterable, Hashable, Sendable {
     public var notchCaption: String {
         switch self {
         case .idle:             return "Idle"
-        case .responding:       return "正在回复…"
-        case .thinking:         return "深度思考中…"
-        case .toolUse:          return "执行工具…"
-        case .permissionPrompt: return "⚠️ 需要权限确认"
-        case .askUser:          return "❓ 在等你回答"
-        case .completed:        return "完成 ✓"
-        case .errorInterrupted: return "已中断"
+        case .responding:       return "Responding…"
+        case .thinking:         return "Thinking deeply…"
+        case .toolUse:          return "Running tool…"
+        case .permissionPrompt: return "⚠️ Permission needed"
+        case .askUser:          return "❓ Waiting for your answer"
+        case .completed:        return "Done ✓"
+        case .errorInterrupted: return "Interrupted"
         }
     }
 

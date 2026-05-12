@@ -70,7 +70,7 @@ private struct DoctorBlock: View {
                 }
 
                 ScrollView {
-                    Text(report.isEmpty ? "Doctor 输出会出现在这里。" : report)
+                    Text(report.isEmpty ? "Doctor output will appear here." : report)
                         .font(.system(size: 11, design: .monospaced))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)

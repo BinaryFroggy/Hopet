@@ -158,7 +158,7 @@ public struct SessionBubbleView: View {
                 .background(Circle().fill(SessionBubbleView.handoffGray))
         }
         .buttonStyle(.plain)
-        .help("交还终端处理")
+        .help("Hand off to terminal")
     }
 
     /// elicitation / askUser 卡片右上角的取消按钮：palette 渲染的 xmark.circle.fill。
@@ -185,7 +185,7 @@ public struct SessionBubbleView: View {
                 .background(Circle().fill(Color.secondary.opacity(0.45)))
         }
         .buttonStyle(.plain)
-        .help("清除此气泡（会话若仍活跃，下次状态变化会重新出现）")
+        .help("Dismiss this bubble (if the session is still active, it will reappear on the next state change)")
     }
 
     /// 权限请求卡片（PermissionRequest hook 触发）。
@@ -207,7 +207,7 @@ public struct SessionBubbleView: View {
             }
 
             // 主标题
-            Text("\(bubble.tool.displayName) 想执行此操作")
+            Text("\(bubble.tool.displayName) wants to run this action")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.primary)
 
@@ -238,12 +238,12 @@ public struct SessionBubbleView: View {
 
             // 操作按钮：所有按钮都先播炸开动画再回调
             HStack(spacing: 6) {
-                Button("拒绝") { popThen { onResolvePermission("deny", nil) } }
+                Button("Deny") { popThen { onResolvePermission("deny", nil) } }
                     .buttonStyle(PixelButtonStyle(tint: SessionBubbleView.denyRose, prominent: true))
                 Spacer()
-                Button("交还终端") { popThen { onResolvePermission("ask", nil) } }
+                Button("Handoff") { popThen { onResolvePermission("ask", nil) } }
                     .buttonStyle(PixelButtonStyle(tint: SessionBubbleView.handoffGray, prominent: true))
-                Button("允许") { popThen { onResolvePermission("allow", nil) } }
+                Button("Allow") { popThen { onResolvePermission("allow", nil) } }
                     .keyboardShortcut(.return, modifiers: [])
                     .buttonStyle(PixelButtonStyle(tint: .green, prominent: true))
             }
@@ -261,7 +261,7 @@ public struct SessionBubbleView: View {
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
-                Text("接受此 plan?")
+                Text("Approve this plan?")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.primary)
                 Spacer()
@@ -282,22 +282,22 @@ public struct SessionBubbleView: View {
             }
 
             VStack(alignment: .leading, spacing: 3) {
-                planOptionRow(index: 1, label: "允许执行", isPrimary: true) {
+                planOptionRow(index: 1, label: "Run the plan", isPrimary: true) {
                     popThen { onResolvePermission("allow", nil) }
                 }
-                planOptionRow(index: 2, label: "继续规划") {
+                planOptionRow(index: 2, label: "Keep planning") {
                     popThen { onResolvePermission("deny", "User wants to keep planning") }
                 }
             }
 
-            TextField("或者告诉 Claude 该怎么做…", text: $planFeedback, axis: .vertical)
+            TextField("Or tell Claude what to do instead…", text: $planFeedback, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(1...3)
                 .focused($inputFocused)
                 .font(.system(size: 10))
                 .onSubmit { submitPlanFeedback() }
 
-            Text("如需后续自动放行，请到 Claude Code 终端按 Shift+Tab 切换 auto-accept 模式")
+            Text("To auto-approve future runs, press Shift+Tab in the Claude Code terminal to toggle auto-accept mode")
                 .font(.system(size: 9))
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
@@ -377,7 +377,7 @@ public struct SessionBubbleView: View {
 
         return VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(total > 1 ? "❓ 在等你回答（\(idx + 1)/\(total)）" : "❓ 在等你回答")
+                Text(total > 1 ? "❓ Waiting for your answer (\(idx + 1)/\(total))" : "❓ Waiting for your answer")
                     .font(.system(size: 11, weight: .semibold))
                 Spacer()
                 paletteDismissButton {
@@ -444,7 +444,7 @@ public struct SessionBubbleView: View {
                 // multiSelect 时不渲染自定义输入框：多选语义本身已被勾选集合表达，
                 // 同时显示文本框只会让"按钮选 + 文本输 + 谁覆盖谁"这条路径变模糊。
                 if q.multiSelect != true {
-                    TextField("自定义回答…", text: bindingForAnswer(of: q.question), axis: .vertical)
+                    TextField("Custom answer…", text: bindingForAnswer(of: q.question), axis: .vertical)
                         .textFieldStyle(.roundedBorder)
                         .lineLimit(1...4)
                         .focused($inputFocused)
@@ -455,12 +455,12 @@ public struct SessionBubbleView: View {
 
             HStack {
                 if idx > 0 {
-                    Button("上一题") { elicitationIndex = idx - 1 }
+                    Button("Previous") { elicitationIndex = idx - 1 }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                 }
                 Spacer()
-                Button(idx < total - 1 ? "下一题" : "发送") {
+                Button(idx < total - 1 ? "Next" : "Send") {
                     advanceOrSubmit(pa: pa)
                 }
                 .keyboardShortcut(.return, modifiers: [])
@@ -539,7 +539,7 @@ public struct SessionBubbleView: View {
     private var askUserCard: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center) {
-                Text("❓ 在等你回答")
+                Text("❓ Waiting for your answer")
                     .font(.system(size: 11, weight: .semibold))
                 Spacer()
                 defaultDismissButton { popThen(onDismiss) }
@@ -550,7 +550,7 @@ public struct SessionBubbleView: View {
                     .foregroundStyle(.primary)
                     .lineLimit(4)
             }
-            Text("请到原终端 / Claude UI 回答。")
+            Text("Please answer in the originating terminal / Claude UI.")
                 .font(.system(size: 9))
                 .foregroundStyle(.secondary)
         }

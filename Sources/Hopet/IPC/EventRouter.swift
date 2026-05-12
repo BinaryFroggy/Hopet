@@ -295,7 +295,7 @@ public final class EventRouter {
             case .askUser:
                 let q = event.stringValue(forKey: "tool_input.question")
                        ?? event.stringValue(forKey: "message")
-                       ?? "Claude 在等你回答"
+                       ?? "Claude is waiting for your answer"
                 s.pendingQuestion = q
             case .stop:
                 // hopet-emit 已从 transcript 抽取最后一段 assistant 文本并截断到 120 字符；
