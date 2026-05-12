@@ -167,7 +167,7 @@ exact animation shipped with the app, in priority order.
 </table>
 
 <p align="center">
-  <img src="./DevDocs/assets/hopi-permission.gif" alt="Hopi permission prompt" width="535" />
+  <img src="./DevDocs/assets/hopi-permission.gif" alt="Hopi permission prompt" width="360" />
 </p>
 
 ## Install

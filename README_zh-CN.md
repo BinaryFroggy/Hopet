@@ -123,7 +123,7 @@ Hopi 主题覆盖全部 8 个 `PetState`，下方每张 GIF 就是 App 内实际
 </table>
 
 <p align="center">
-  <img src="./DevDocs/assets/hopi-permission.gif" alt="Hopi permission prompt" width="535" />
+  <img src="./DevDocs/assets/hopi-permission.gif" alt="Hopi permission prompt" width="360" />
 </p>
 
 ## 安装
