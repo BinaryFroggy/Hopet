@@ -28,6 +28,7 @@ Package.resolved
 *.dmg
 *.zip
 *.ipa
+dist/
 
 # 编辑器
 .idea/
