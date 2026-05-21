@@ -52,7 +52,16 @@ public final class SceneRouter {
             themes: themes,
             inputCoordinator: coordinator
         )
-        self.notchController = NotchWindowController(registry: registry)
+        self.notchController = NotchWindowController(
+            registry: registry,
+            inputCoordinator: coordinator,
+            onUserRequestedClose: {
+                // 用户点灵动岛右上角关闭：写持久化设置，让 BehaviorTab 的开关视觉
+                // 与下次启动行为都同步反映为 OFF。下面的 NotificationCenter sink
+                // 会接到 didChangeNotification 调 hide() 真正关掉窗口。
+                UserDefaults.standard.set(false, forKey: "notch.enabled")
+            }
+        )
         self.preferencesController = PreferencesWindowController(
             registry: registry,
             themes: themes,
@@ -118,8 +127,7 @@ public final class SceneRouter {
             thinkingTimer.start()
             decayTimer.start()
             petWindowController.show()
-            // 刘海条暂不展示，等三态/降级顶条视觉打磨完再开。controller / wiring 保留。
-            // notchController.show()
+            wireNotchVisibility()
             HopetLog.info("Hopet booted.")
             HopetLog.trace("booted ok.")
         } catch {
@@ -165,6 +173,25 @@ public final class SceneRouter {
         } catch {
             HopetLog.warn("\(tool.displayName) hook install failed: \(error)")
         }
+    }
+
+    /// 把灵动岛窗口的显示状态与 UserDefaults `notch.enabled` 绑定。BehaviorTab 上的
+    /// 开关、灵动岛右上角关闭按钮都通过写这同一个 key 触发 show/hide，单一真相源。
+    /// 启动时读一次决定初始可见，之后用 didChangeNotification 监听变化。removeDuplicates
+    /// 防止 UserDefaults 其它 key 改写也触发空跑。
+    private func wireNotchVisibility() {
+        let initial = UserDefaults.standard.object(forKey: "notch.enabled") as? Bool ?? true
+        if initial { notchController.show() }
+
+        NotificationCenter.default
+            .publisher(for: UserDefaults.didChangeNotification, object: UserDefaults.standard)
+            .map { _ in UserDefaults.standard.object(forKey: "notch.enabled") as? Bool ?? true }
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] enabled in
+                enabled ? self?.notchController.show() : self?.notchController.hide()
+            }
+            .store(in: &configCancellables)
     }
 
     /// 折中静音清扫：扫一遍 registry，把"工具 listener 关闭 + 当前无待决策"的 session

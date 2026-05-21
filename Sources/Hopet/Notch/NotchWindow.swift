@@ -1,7 +1,10 @@
 import AppKit
+import Combine
 import SwiftUI
 
-/// 吸附在刘海下边缘 / 屏顶的薄条窗口。
+/// 灵动岛承载窗口：从屏顶下沿延伸的透明无边框面板。窗口本身负责"不超过菜单栏"的层级与
+/// "可在 collapsed / expanded 两态间动画切换 frame"的能力。背景磨玻璃由 SwiftUI 端的
+/// `VisualEffectBackground` 注入到 contentView 下层。
 public final class NotchWindow: NSPanel {
     public init(rect: NSRect, contentView: NSView) {
         super.init(
@@ -12,10 +15,11 @@ public final class NotchWindow: NSPanel {
         )
         self.isOpaque = false
         self.backgroundColor = .clear
-        self.hasShadow = false
+        self.hasShadow = true
         // 不要超过菜单栏（NSMainMenuWindowLevel = 24），否则会遮挡 🦭 图标。
         self.level = .floating
         self.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
+        contentView.autoresizingMask = [.width, .height]
         self.contentView = contentView
         self.ignoresMouseEvents = false
     }
@@ -28,12 +32,25 @@ public final class NotchWindow: NSPanel {
 public final class NotchWindowController {
     private var window: NotchWindow?
     private let registry: SessionRegistry
+    private let inputCoordinator: InputCoordinator
+    /// 注入"灵动岛已被用户关闭"的副作用——由 SceneRouter 把 `notch.enabled = false`
+    /// 写入 UserDefaults 完成；controller 自身不直接碰 UserDefaults，避免与 SceneRouter
+    /// 的订阅链形成回环。
+    private let onUserRequestedClose: () -> Void
+    private var currentLayout: NotchDetector.Layout?
 
-    public init(registry: SessionRegistry) {
+    public init(
+        registry: SessionRegistry,
+        inputCoordinator: InputCoordinator,
+        onUserRequestedClose: @escaping () -> Void
+    ) {
         self.registry = registry
+        self.inputCoordinator = inputCoordinator
+        self.onUserRequestedClose = onUserRequestedClose
     }
 
     public func show() {
+        guard window == nil else { return }
         guard let layout = NotchDetector.detect() else { return }
 
         // 无刘海机型：默认不显示降级顶条，避免遮挡菜单栏。
@@ -46,20 +63,77 @@ public final class NotchWindowController {
             }
         }
 
-        // 用 visibleFrame.maxY 而不是 frame.maxY，确保始终在菜单栏下方。
-        var rect = layout.topBarRect
-        rect.origin.y = layout.screen.visibleFrame.maxY - rect.height
+        currentLayout = layout
 
-        let view = NSHostingView(rootView: NotchView(registry: registry))
-        view.frame = NSRect(origin: .zero, size: rect.size)
-        let win = NotchWindow(rect: rect, contentView: view)
+        // 初始为 collapsed 顶条尺寸，确保启动瞬间不挡菜单栏视觉。
+        let initialRect = topBarFrame(in: layout)
+
+        let view = NSHostingView(rootView: NotchView(
+            registry: registry,
+            layout: layout,
+            onResolvePermission: { [weak self] sid, rid, dec, reason in
+                self?.inputCoordinator.resolvePermission(
+                    sessionId: sid, requestId: rid, decision: dec, reason: reason
+                )
+            },
+            onResolveAskUser: { [weak self] sid, rid, answers, cancel in
+                self?.inputCoordinator.resolveAskUser(
+                    sessionId: sid, requestId: rid, answers: answers, cancel: cancel
+                )
+            },
+            onCloseNotch: { [weak self] in
+                self?.onUserRequestedClose()
+            },
+            onPresentationChange: { [weak self] presentation in
+                self?.applyPresentation(presentation)
+            }
+        ))
+        view.frame = NSRect(origin: .zero, size: initialRect.size)
+
+        let win = NotchWindow(rect: initialRect, contentView: view)
         window = win
         win.orderFrontRegardless()
         HopetLog.info("notch bar shown (hasNotch=\(layout.hasNotch))")
+
+        // 启动时先按当前 registry 派生一次 presentation——例如启动瞬间已经有
+        // pending 决策的极端情形，避免必须等下一次 mutation 才扩大。
+        let initial: NotchPresentation =
+            currentExpandReason(registry: registry) == nil ? .collapsed : .expanded
+        if initial == .expanded { applyPresentation(.expanded) }
     }
 
     public func hide() {
         window?.orderOut(nil)
         window = nil
+        currentLayout = nil
+    }
+
+    /// 切换窗口 frame 到 collapsed / expanded 对应大小。
+    /// SwiftUI 的内容已经在 frame 改变之前完成重排——窗口动画把 contentView 揭开，
+    /// NSHostingView 用 autoresizingMask 跟随，视觉上是"下拉展开 / 上推收起"。
+    private func applyPresentation(_ presentation: NotchPresentation) {
+        guard let win = window, let layout = currentLayout else { return }
+        let target = (presentation == .expanded)
+            ? expandedFrame(in: layout)
+            : topBarFrame(in: layout)
+        if NSEqualRects(win.frame, target) { return }
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.28
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            ctx.allowsImplicitAnimation = true
+            win.animator().setFrame(target, display: true)
+        }
+    }
+
+    /// collapsed 态窗口 frame：紧贴菜单栏下沿、宽度等同 layout.topBarRect。
+    private func topBarFrame(in layout: NotchDetector.Layout) -> NSRect {
+        var rect = layout.topBarRect
+        rect.origin.y = layout.screen.visibleFrame.maxY - rect.height
+        return rect
+    }
+
+    /// expanded 态窗口 frame：横向居中、从 visibleFrame.maxY 向下扩，永不超过菜单栏。
+    private func expandedFrame(in layout: NotchDetector.Layout) -> NSRect {
+        layout.expandedRect
     }
 }
