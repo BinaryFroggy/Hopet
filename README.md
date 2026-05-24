@@ -1,12 +1,28 @@
-**简体中文** · [English](./README.en.md)
+<p align="center">
+  <b>简体中文</b> · <a href="./README.en.md">English</a>
+</p>
 
+<p align="center">
+  <img src="./DevDocs/assets/hopi-cardboard-box-pixel.png" alt="Hopet" width="160" />
+</p>
 
+<h1 align="center">Hopet</h1>
 
-# Hopet
+<p align="center">
+  一只常驻 macOS 桌面的 AI 宠物，用动画和气泡显示
+  <a href="https://claude.com/claude-code">Claude Code</a> /
+  <a href="https://github.com/openai/codex">Codex CLI</a>
+  正在思考、执行工具、等待确认、请求权限或完成任务，让你不用切回终端也能看懂 agent 进展。
+</p>
 
-一只常驻 macOS 桌面的 AI 宠物，用动画和气泡显示 [Claude Code](https://claude.com/claude-code) / [Codex CLI](https://github.com/openai/codex) 正在思考、执行工具、等待确认、请求权限或完成任务，让你不用切回终端也能看懂 agent 进展。
-
-
+<p align="center">
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
+  <img src="https://img.shields.io/badge/Swift-5.10-F05138.svg?logo=swift&logoColor=white" alt="Swift 5.10" />
+  <img src="https://img.shields.io/badge/macOS-14%2B-000000.svg?logo=apple&logoColor=white" alt="macOS 14+" />
+  <img src="https://img.shields.io/badge/Apple%20Silicon%20%7C%20Intel-555555.svg?logo=apple&logoColor=white" alt="Apple Silicon | Intel" />
+  <img src="https://img.shields.io/badge/SwiftPM-compatible-brightgreen.svg" alt="SwiftPM compatible" />
+  <img src="https://img.shields.io/badge/SwiftUI-AppKit-007AFF.svg" alt="SwiftUI + AppKit" />
+</p>
 
 ---
 
@@ -45,7 +61,7 @@ Hopet 通过 agent CLI 的生命周期 hook 工作，目前覆盖以下 4 种用
 
 - **一键安装 / 卸载** Claude Code 与 Codex CLI 的 hook settings，采用安全的 JSON merge，绝不覆盖你已有的 hook
 - **Unix Domain Socket IPC**，所有从 CLI helper 进入 App 的事件都走长度前缀 JSON 帧
-- `**hopet-emit` CLI 工具**，完整支持 `--require` / `--exclude` / 点号嵌套字段路径——安装到 `~/.hopet/bin/`，由注册好的 hook 直接调用
+- **`hopet-emit` CLI 工具**，完整支持 `--require` / `--exclude` / 点号嵌套字段路径——安装到 `~/.hopet/bin/`，由注册好的 hook 直接调用
 - **同步回包通道**——`PermissionRequest` 和 `AskUserQuestion` 的答案沿着同一条挂起的 hook socket 回传给 agent，因此 Allow/Deny 和结构化答题在 iTerm、Apple Terminal、VS Code、Cursor、Ghostty、Warp 等所有终端宿主里行为一致
 
 ### 桌面宠物
@@ -65,32 +81,50 @@ Hopet 通过 agent CLI 的生命周期 hook 工作，目前覆盖以下 4 种用
 
 标准 macOS 偏好窗口，共 7 个 Tab：
 
-
-| Tab           | 用途                               |
-| ------------- | -------------------------------- |
-| Overview      | 宠物当前状态快照与活跃 session 列表           |
-| Themes        | 内置主题 + 用户主题，导入 / 应用 / 删除         |
-| Appearance    | 宠物渲染相关选项                         |
-| Hooks         | Claude Code / Codex hook 安装状态与诊断 |
-| Behavior      | 拖拽吸附、idle 可见性、动画帧率等              |
-| Notifications | 各类横幅通知的分类开关                      |
-| About         | 版本号、构建号、致谢                       |
-
+| Tab | 用途 |
+| --- | --- |
+| Overview | 宠物当前状态快照与活跃 session 列表 |
+| Themes | 内置主题 + 用户主题，导入 / 应用 / 删除 |
+| Appearance | 宠物渲染相关选项 |
+| Hooks | Claude Code / Codex hook 安装状态与诊断 |
+| Behavior | 拖拽吸附、idle 可见性、动画帧率等 |
+| Notifications | 各类横幅通知的分类开关 |
+| About | 版本号、构建号、致谢 |
 
 ## 效果展示
 
 Hopi 主题覆盖全部 8 个 `PetState`，下方每张 GIF 就是 App 内实际播放的动画，按优先级从高到低排列。
 
+<table width="100%">
+  <tr>
+    <td align="center" width="25%"><img src="./DevDocs/assets/HopiGif/seal-ask-user.gif" alt="Ask User" width="200" /></td>
+    <td align="center" width="25%"><img src="./DevDocs/assets/HopiGif/seal-permission-prompt.gif" alt="Permission Prompt" width="200" /></td>
+    <td align="center" width="25%"><img src="./DevDocs/assets/HopiGif/seal-error-interrupted.gif" alt="Error / Interrupted" width="200" /></td>
+    <td align="center" width="25%"><img src="./DevDocs/assets/HopiGif/seal-tool-use.gif" alt="Tool Use" width="200" /></td>
+  </tr>
+  <tr>
+    <td align="center" width="25%"><b>Ask User</b></td>
+    <td align="center" width="25%"><b>Permission Prompt</b></td>
+    <td align="center" width="25%"><b>Error / Interrupted</b></td>
+    <td align="center" width="25%"><b>Tool Use</b></td>
+  </tr>
+  <tr>
+    <td align="center" width="25%"><img src="./DevDocs/assets/HopiGif/seal-thinking.gif" alt="Thinking" width="200" /></td>
+    <td align="center" width="25%"><img src="./DevDocs/assets/HopiGif/seal-responding.gif" alt="Responding" width="200" /></td>
+    <td align="center" width="25%"><img src="./DevDocs/assets/HopiGif/seal-completed.gif" alt="Completed" width="200" /></td>
+    <td align="center" width="25%"><img src="./DevDocs/assets/HopiGif/seal-idle.gif" alt="Idle" width="200" /></td>
+  </tr>
+  <tr>
+    <td align="center" width="25%"><b>Thinking</b></td>
+    <td align="center" width="25%"><b>Responding</b></td>
+    <td align="center" width="25%"><b>Completed</b></td>
+    <td align="center" width="25%"><b>Idle</b></td>
+  </tr>
+</table>
 
-|              |                       |                         |              |
-| ------------ | --------------------- | ----------------------- | ------------ |
-|              |                       |                         |              |
-| **Ask User** | **Permission Prompt** | **Error / Interrupted** | **Tool Use** |
-|              |                       |                         |              |
-| **Thinking** | **Responding**        | **Completed**           | **Idle**     |
-
-
-
+<p align="center">
+  <img src="./DevDocs/assets/hopi-permission.gif" alt="Hopi permission prompt" width="360" />
+</p>
 
 ## 安装
 
@@ -99,14 +133,14 @@ Hopi 主题覆盖全部 8 个 `PetState`，下方每张 GIF 就是 App 内实际
 1. 从 [Releases 页面](https://github.com/BinaryFroggy/Hopet/releases/latest) 下载最新的 `Hopet-<version>.dmg`。
 2. 打开 DMG，把 **Hopet** 拖进 **Applications**。
 3. 当前发布版本使用 **ad-hoc 签名**（无 Apple Developer ID），首次打开会被 macOS 拦截，提示「无法打开 Hopet，因为 Apple 无法检查其是否包含恶意软件」。两种绕过方式任选其一：
-  - 在 Applications 里**右键** Hopet.app → **打开** → 弹窗里再点一次**打开**；
-  - 终端执行一次：`xattr -dr com.apple.quarantine /Applications/Hopet.app`
+   - 在 Applications 里**右键** Hopet.app → **打开** → 弹窗里再点一次**打开**；
+   - 终端执行一次：`xattr -dr com.apple.quarantine /Applications/Hopet.app`
 
 首次启动时 App 会自动给所有识别到的 AI 工具（Claude Code、Codex CLI）安装 hooks，并把 `hopet-emit` helper 复制到 `~/.hopet/bin/`。Merge 是非破坏性的——`~/.claude/settings.json` 与 `~/.codex/hooks.json` 里已有的 hook 都会保留。后续启动检测到已安装则直接跳过。
 
 偏好面板的 **Hooks** Tab 用来查看安装状态、跑诊断 Doctor、以及给每个工具单独做 listener 软静音（不动 hook 文件，仅在 EventRouter 入口丢事件）。
 
-想换一只自己的宠物，进 **Themes** Tab，点 *Import Theme…*，填一个名字，准备好对应的动画 GIF 图即可，支持单张 / 文件夹 / 压缩包上传方式，主题会落在 `~/.hopet/themes/<id>/`，与内置 Hopi 并列。
+想换一只自己的宠物，进 **Themes** Tab，点 _Import Theme…_，填一个名字，准备好对应的动画 GIF 图即可，支持单张 / 文件夹 / 压缩包上传方式，主题会落在 `~/.hopet/themes/<id>/`，与内置 Hopi 并列。
 
 ## 从源码构建
 
