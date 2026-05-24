@@ -9,9 +9,12 @@
 <h1 align="center">Hopet</h1>
 
 <p align="center">
-  A macOS desktop AI pet that mirrors the live state of your
+  A macOS desktop AI pet that shows what your
   <a href="https://claude.com/claude-code">Claude Code</a> and
-  <a href="https://github.com/openai/codex">Codex CLI</a> sessions.
+  <a href="https://github.com/openai/codex">Codex CLI</a> agents are doing:
+  thinking, running tools, waiting for confirmation, asking for permission,
+  or wrapping up, all through animations and speech bubbles so you can keep
+  track without switching back to the terminal.
 </p>
 
 <p align="center">
@@ -221,6 +224,10 @@ swift run hopet-emit --help      # inspect the CLI helper's flags
   event schema and priority resolution
 - [DevDocs/preferences.md](./DevDocs/preferences.md) — preference keys
   and theme import contract
+
+## Acknowledgments
+
+- [LINUX DO](https://linux.do/)
 
 ## License
 
