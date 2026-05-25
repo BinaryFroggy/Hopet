@@ -100,29 +100,29 @@
 ```mermaid
 stateDiagram-v2
     [*] --> collapsed
-    collapsed --> expanded: 鼠标靠近 120px / 高优先级状态
-    expanded --> collapsed: 鼠标离开 + 回 idle / collapseDelay 超时
+    collapsed --> expanded: hover 显示 ↓ 后点击 / 高优先级状态
+    expanded --> collapsed: 点击 ↑ / completed 摘要 3s 超时 / pending 消失
 ```
 
 各态的视觉呈现：
 
 | 态 | 尺寸 | 内容 | 触发 |
 | --- | --- | --- | --- |
-| **collapsed** | 与刘海像素对齐的黑色胶囊 | 一个小色点代表最高优先级状态色（绿/橙/红） | 默认态 |
-| **expanded** | 最大 560×44 | AI 名称 + 当前状态文案（`PetState.notchCaption`，全英文）+ 计时器 | 鼠标靠近 120 px 内 或 出现 permission-prompt / ask-user |
+| **collapsed** | 贴近物理刘海宽度的黑色区域（有刘海机型约 160–220 pt，无刘海降级 184 pt），高度 = 顶部刘海保留区 + 26 pt 状态条 | 底部状态条显示小色点 + 最高优先级状态文案（`Idle` / `Thinking…` / `Responding…` 等）；hover 时右侧显示 ↓ | 默认态 |
+| **expanded** | 最大宽度 560 pt，高度按内容包裹且不超过屏幕高度 1/4；completed 摘要独立停留 3s 后收起（不受 completed→idle 2s 降级影响） | 权限 / AskUser / 完成摘要卡片；手动展开时显示当前会话详情（状态 / cwd / 最近提问 / 最近回复，耗时每秒刷新）；顶部显示 ↑ 可手动收起，不再显示独立关闭按钮 | 点击 collapsed 的 ↓ 或 出现 permission-prompt / ask-user / completed |
 | **fullBubble** | 视气泡内容自适应 | 把活跃气泡内容直接嵌进刘海下方（实验态，仅 `NotchView.swift` 内含） | 内部用 |
 
 #### 3.2.2 吸附与动效
 
-- 定位：使用 `NSScreen.auxiliaryTopLeftArea`（macOS 14+）获得刘海精确 rect，`NotchWindow` 严格对齐其下边缘。
-- 伸展动效：高度 0 → 44，宽度 按内容撑开到最大 560；`spring(response: 0.35, damping: 0.85)`。
-- Level：`.statusBar + 1`，跨所有 Space、不进入 Mission Control。
-- 多屏：仅在"主屏幕"渲染刘海条；外接显示器上宠物本体正常显示，仅无刘海条。
+- 定位：使用 `NSScreen.safeAreaInsets` 与 `auxiliaryTopLeftArea / auxiliaryTopRightArea`（macOS 14+）推导主屏刘海 gap；有刘海屏从屏幕顶端开始渲染纯黑区域，高度覆盖顶部安全区并在底部追加 26 pt 状态条，状态文案只放在底部状态条。无刘海降级条吸附菜单栏下沿。
+- 伸展动效：窗口顶部锚定，expanded 与 collapsed 共用同一个屏幕中心点，宽度从中点向两侧撑开到最大 560，高度从上往下按内容展开；`spring(response: 0.44, damping: 0.92)`，窗口 frame 使用 0.42s ease-in-out。
+- Level：`.statusBar + 1`，确保菜单栏不会盖住刘海下沿补黑区域；窗口宽度限制在刘海中心 gap，跨所有 Space、不进入 Mission Control。
+- 多屏：优先在带刘海的内建屏幕渲染刘海条；没有刘海屏时才使用主屏幕降级条。外接显示器上宠物本体正常显示。
 
 #### 3.2.3 降级策略（无刘海机型）
 
 - 无 `safeAreaInsets.top > 0` 的 Mac → 启用 `FallbackTopBarWindow`：
-  - 屏幕顶部中央悬浮一条 280×28 的胶囊
+  - 屏幕顶部中央悬浮一条 184×26 的黑色下沿
   - 与刘海条具备相同的三态能力
   - 默认关闭，可在偏好中开启（避免遮挡菜单栏）
 - 用户亦可在偏好里强制切换为"仅宠物，不要顶部条"。
@@ -181,7 +181,7 @@ v0.1 只有两个用户输入入口，都建立在 **Claude 主动开口**（hoo
 
 1. hopet-emit 通过 socket 把请求转给 Hopet，**Claude 进程被挂起等响应**（30s 超时）
 2. 该 session 的气泡**自动从环绕态展开**为 360×160 的决策卡，显示工具名 + 命令/路径预览
-3. 用户点 **允许** / **拒绝** / **交给终端**
+3. 用户点 **Allow** / **Deny** / **Handoff**
 4. 决策通过同一条挂起的 socket 回写：`{ "hookSpecificOutput": { "hookEventName": "PermissionRequest", "decision": { "behavior": "allow"|"deny" } } }`
 5. Claude 拿到决策继续工具调用循环；如选"交给终端"则回 `{}`，Claude 自走它的 TUI 弹窗
 

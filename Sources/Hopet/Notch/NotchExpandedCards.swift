@@ -2,13 +2,14 @@ import SwiftUI
 
 // MARK: - 公共头部
 
-/// 灵动岛展开卡片公共顶栏：状态点 + 标题 + 副标题 + 右上角关闭按钮。
-/// `onClose` 由容器注入：点击 = 关闭整个灵动岛（写 notch.enabled = false）。
+/// 灵动岛展开卡片公共顶栏：状态点 + 标题 + 副标题。
+/// 面板收起统一由 NotchView 顶部的上拉箭头负责，避免同屏出现两个关闭入口。
 struct NotchCardHeader: View {
     let accent: Color
     let title: String
     let subtitle: String?
     let onClose: () -> Void
+    var showsCloseButton: Bool = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -27,14 +28,16 @@ struct NotchCardHeader: View {
                 }
             }
             Spacer(minLength: 8)
-            Button(action: onClose) {
-                Image(systemName: "xmark.circle.fill")
-                    .symbolRenderingMode(.hierarchical)
-                    .font(.system(size: 18))
-                    .foregroundStyle(.white.opacity(0.7))
+            if showsCloseButton {
+                Button(action: onClose) {
+                    Image(systemName: "xmark.circle.fill")
+                        .symbolRenderingMode(.hierarchical)
+                        .font(.system(size: 18))
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+                .buttonStyle(.plain)
+                .help("关闭灵动岛")
             }
-            .buttonStyle(.plain)
-            .help("关闭灵动岛")
         }
     }
 }
@@ -65,10 +68,14 @@ struct NotchPermissionCard: View {
             Spacer(minLength: 0)
 
             HStack(spacing: 10) {
-                Button("拒绝") { onResolve("deny", nil) }
-                    .buttonStyle(NotchPillButtonStyle(tint: Color(red: 0.92, green: 0.32, blue: 0.50)))
-                Button("允许") { onResolve("allow", nil) }
-                    .buttonStyle(NotchPillButtonStyle(tint: Color(red: 0.30, green: 0.78, blue: 0.45)))
+                Button("Deny") { onResolve("deny", nil) }
+                    .buttonStyle(PixelButtonStyle(tint: SessionBubbleView.denyRose, prominent: true))
+                Spacer(minLength: 0)
+                Button("Handoff") { onResolve("ask", nil) }
+                    .buttonStyle(PixelButtonStyle(tint: SessionBubbleView.handoffGray, prominent: true))
+                Button("Allow") { onResolve("allow", nil) }
+                    .keyboardShortcut(.return, modifiers: [])
+                    .buttonStyle(PixelButtonStyle(tint: .green, prominent: true))
             }
         }
         .padding(16)
@@ -281,6 +288,60 @@ struct NotchAskUserCard: View {
     }
 }
 
+// MARK: - DetailsCard
+
+struct NotchDetailsCard: View {
+    let session: Session?
+    let pet: PetInstance
+    let onClose: () -> Void
+
+    @State private var now = Date()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            NotchCardHeader(
+                accent: pet.aggregatedState.accentColor,
+                title: title,
+                subtitle: subtitle,
+                onClose: onClose
+            )
+
+            VStack(alignment: .leading, spacing: 8) {
+                NotchDetailLine(label: "状态", value: statusText)
+                if let session {
+                    NotchDetailLine(label: "项目", value: session.cwd)
+                    NotchDetailBlock(label: "最近提问", text: session.lastPromptSnippet)
+                    NotchDetailBlock(label: "最近回复", text: session.lastAssistantMessage)
+                } else {
+                    NotchDetailBlock(label: "对话", text: nil)
+                }
+            }
+        }
+        .padding(16)
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                await MainActor.run { now = Date() }
+            }
+        }
+    }
+
+    private var title: String {
+        guard let session else { return "Hopet · Idle" }
+        return "\(session.tool.displayName) · \(session.displayTitle)"
+    }
+
+    private var subtitle: String? {
+        guard let session else { return nil }
+        return session.stateDurationPhrase(now: now)
+    }
+
+    private var statusText: String {
+        guard let session else { return pet.aggregatedState.notchCaption }
+        return "\(session.currentState.notchCaption) · \(session.stateDurationPhrase(now: now))"
+    }
+}
+
 // MARK: - CompletedSummaryCard
 
 struct NotchCompletedSummaryCard: View {
@@ -307,6 +368,55 @@ struct NotchCompletedSummaryCard: View {
 }
 
 // MARK: - 小组件
+
+private struct NotchDetailLine: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.55))
+                .frame(width: 52, alignment: .leading)
+            Text(value)
+                .font(.system(size: 12))
+                .foregroundStyle(.white.opacity(0.86))
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+    }
+}
+
+private struct NotchDetailBlock: View {
+    let label: String
+    let text: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.55))
+            Text(displayText)
+                .font(.system(size: 12))
+                .foregroundStyle(.white.opacity(text == nil ? 0.42 : 0.84))
+                .lineLimit(3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.white.opacity(0.06))
+                )
+        }
+    }
+
+    private var displayText: String {
+        guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "—"
+        }
+        return text
+    }
+}
 
 /// 命令 / 文件路径预览块。等宽字体、半透明描边，避免长命令被默认字体撑形。
 private struct NotchCommandPreview: View {
