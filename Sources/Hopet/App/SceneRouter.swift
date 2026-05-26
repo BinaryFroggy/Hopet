@@ -14,6 +14,7 @@ public final class SceneRouter {
     private let thinkingTimer: ThinkingTimer
     private let decayTimer: CompletedDecayTimer
     private let permissionPrompter: PermissionPrompter
+    private let codexVscodeWatcher: CodexVscodeSessionWatcher
     private var router: EventRouter
     private var server: SocketServer?
     private var configCancellables: Set<AnyCancellable> = []
@@ -39,13 +40,15 @@ public final class SceneRouter {
         self.thinkingTimer = ThinkingTimer(registry: registry)
         self.decayTimer = CompletedDecayTimer(registry: registry)
         self.permissionPrompter = prompter
-        self.router = EventRouter(
+        let eventRouter = EventRouter(
             registry: registry,
             permissionPrompter: prompter,
             isToolListening: { [weak configStore] tool in
                 configStore?.current.listeners[tool] ?? true
             }
         )
+        self.router = eventRouter
+        self.codexVscodeWatcher = CodexVscodeSessionWatcher(router: eventRouter)
 
         self.petWindowController = PetWindowController(
             registry: registry,
@@ -126,6 +129,7 @@ public final class SceneRouter {
 
             thinkingTimer.start()
             decayTimer.start()
+            codexVscodeWatcher.start()
             petWindowController.show()
             wireNotchVisibility()
             HopetLog.info("Hopet booted.")
@@ -139,6 +143,7 @@ public final class SceneRouter {
     public func shutdown() {
         thinkingTimer.stop()
         decayTimer.stop()
+        codexVscodeWatcher.stop()
         notchController.hide()
         server?.stop()
     }

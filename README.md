@@ -10,8 +10,9 @@
 
 <p align="center">
   A macOS desktop AI pet that mirrors the live state of your
-  <a href="https://claude.com/claude-code">Claude Code</a> and
-  <a href="https://github.com/openai/codex">Codex CLI</a> sessions.
+  <a href="https://claude.com/claude-code">Claude Code</a>,
+  <a href="https://github.com/openai/codex">Codex CLI</a>, and
+  Codex VS Code sessions.
 </p>
 
 <p align="center">
@@ -28,8 +29,8 @@
 ## About
 
 Hopet is a desktop AI coding companion for macOS that turns the live
-session state of Claude Code / Codex CLI into something you can actually
-see: thinking, calling tools, awaiting confirmation, requesting
+session state of Claude Code, Codex CLI, and Codex VS Code into something
+you can actually see: thinking, calling tools, awaiting confirmation, requesting
 permission, completing, or failing — every transition is expressed
 through pet animations, inline bubbles, and the menu-bar indicator.
 
@@ -48,18 +49,22 @@ with a name and eight GIFs.
 
 ## Supported AI tools
 
-Hopet works through the lifecycle hooks of the agent CLIs, so the
-following four entry points are covered:
+Hopet works through lifecycle hooks for CLI-backed agents and a read-only
+local rollout watcher for the Codex VS Code extension. The following
+entry points are covered:
 
 - **Claude Code** — the `claude` CLI in any terminal
 - **Claude Code for VS Code** — the official VS Code extension
 - **Codex CLI** — the `codex` CLI in any terminal
-- **Codex VS Code Extension** — the official VS Code extension
+- **Codex VS Code Extension** — local session status only; approval
+  prompts stay in Codex's own UI
 
-Because everything runs through the same `~/.claude/settings.json` and
-`~/.codex/hooks.json` hooks, the host on top doesn't matter: Apple
-Terminal, iTerm2, Ghostty, Warp, the embedded terminal of VS Code or
-Cursor — they all behave the same.
+For Claude Code and Codex CLI, the host on top doesn't matter because
+events travel through `~/.claude/settings.json` and `~/.codex/hooks.json`:
+Apple Terminal, iTerm2, Ghostty, Warp, and embedded terminals in VS Code
+or Cursor behave the same. The Codex VS Code extension path reads
+`~/.codex/sessions/**/rollout-*.jsonl`; it does not provide a synchronous
+Allow/Deny channel to Hopet.
 
 Not supported: the browser version of Claude at claude.ai, and any
 agent that isn't Claude Code or Codex (GitHub Copilot Chat, Gemini CLI,
@@ -90,7 +95,7 @@ Aider, etc.).
 - **`hopet-emit` CLI helper** with full flag support (`--require`,
   `--exclude`, dotted field paths) — installed at `~/.hopet/bin/` and
   invoked by the registered hooks
-- **Synchronous reply path** for `PermissionRequest` and
+- **Synchronous reply path** for hook-backed `PermissionRequest` and
   `AskUserQuestion` — answers travel back through the same suspended hook
   socket, so Allow/Deny decisions and structured AskUser answers work
   uniformly across iTerm, Apple Terminal, VS Code, Cursor, Ghostty, and

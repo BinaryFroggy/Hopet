@@ -20,7 +20,7 @@
 | --- | --- | --- |
 | AI 正在跑一个长任务，用户去看文档 | 不时切回终端检查进度 | 宠物一直"回复中"动画；完成时播放"完成"动画并可弹通知 |
 | AI 问用户 AskUserQuestion | 用户没注意到终端已停等待 | 宠物切到"询问"专属动画 + 刘海条文字提醒 + （可选）通知 |
-| 需要权限确认（Bash/Edit） | 长任务里夹杂多次权限弹窗，容易错过 | 宠物切到"权限请求"动画；刘海条高亮 |
+| 需要权限确认（Bash/Edit） | 长任务里夹杂多次权限弹窗，容易错过 | hook-backed CLI 会话切到"权限请求"动画并展示决策卡；Codex VSCode / Cursor 插件审批仍用插件自己的 UI |
 | 多个会话并发（`cc-1` / `cc-2` / codex） | 哪个在跑、哪个卡住不清楚 | 每个会话独立宠物，位置互不重叠 |
 
 ---
@@ -33,6 +33,7 @@
 | --- | --- | --- | --- |
 | 状态感知动画（Claude Code，idle / responding / thinking / tool-use / permission-prompt / ask-user / completed） | ✅ 含 ask-user（通过 AskUserQuestion tool 路由） | ✅ | ✅ |
 | 状态感知动画（Codex CLI 0.129+，无 ask-user 和 error-interrupted） | ✅ 6 hook 完整生命周期（`~/.codex/hooks.json`） | ✅ | ✅ |
+| 状态感知动画（Codex VSCode / Cursor 插件） | ✅ 只读本地 rollout，会话 / 回复 / 工具 / 完成状态；不接管插件权限审批 | ✅ | ✅ |
 | `error-interrupted` 状态有事件源 | ⛔ 枚举值保留，但 `PostToolUseFailure` 太常态已停用；见 [hooks-and-priority.md §1.1 注 2](./hooks-and-priority.md#11-实际订阅的-claude-code-hook) | 视未来真"会话级错误"事件出现而定 | TBD |
 | 刘海屏 Dynamic Notch | ✅ 三态：collapsed / expanded / fullBubble | ✅ | ✅ |
 | 顶部悬浮条降级（无刘海机型，`notch.fallbackBarEnabled`） | ✅ | ✅ | ✅ |
@@ -175,6 +176,8 @@ v0.1 只有两个用户输入入口，都建立在 **Claude 主动开口**（hoo
 
 启动新会话的方式：用户照常在自己的终端 / Cursor / VS Code / IDE 内嵌终端里打 `claude` / `codex`，Hopet 通过 hook 自动感知，新气泡随 SessionStart 事件出现。
 
+Codex VSCode / Cursor 插件主会话不触发 `~/.codex/hooks.json`；Hopet 通过本地 rollout watcher 只读感知其状态。该路径没有同步审批回包，因此插件弹出的权限审批不展示 Hopet 决策卡。
+
 #### 3.4.1 PermissionRequest 自动展开
 
 当 Claude 触发 `PermissionRequest` hook（如要执行 Bash/Edit 等需要权限的工具）：
@@ -186,6 +189,8 @@ v0.1 只有两个用户输入入口，都建立在 **Claude 主动开口**（hoo
 5. Claude 拿到决策继续工具调用循环；如选"交给终端"则回 `{}`，Claude 自走它的 TUI 弹窗
 
 跨 iTerm / Apple Terminal / VS Code / Cursor 内嵌终端 / Ghostty / Warp 等所有宿主工作——这条路是协议级的，跟终端注入路径无关。
+
+Codex VSCode / Cursor 插件自己的审批弹窗不走这条 hook socket；Hopet 不接管其 Allow / Deny / Handoff，审批期间最多展示普通工具执行状态。
 
 #### 3.4.2 AskUserQuestion 自动展开
 

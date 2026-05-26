@@ -101,6 +101,21 @@ Codex 当前**不暴露**这些 Claude 有的事件，因此 Hopet 不订阅、�
 
 > 已知体验注意点：若同机器上 Codex `hooks.json` 同时被多个工具（如 clawd-on-desk）注册了 `PermissionRequest`，多个 hook 会并发收到事件并各自请求决策。Hopet 的合并策略保留其它工具条目（只 append/卸载自己的 marker 行），不主动清理别人——多端决策的优先级由 Codex 内部规则决定。
 
+### 1.3 Codex VSCode / Cursor 插件本地会话监听
+
+Codex VSCode / Cursor 插件不走 `~/.codex/hooks.json`，因此 CLI hook 链不会收到插件主会话的生命周期事件。Hopet App 启动后额外只读监听 `~/.codex/sessions/**/rollout-*.jsonl`，筛选 `session_meta.originator == "codex_vscode"` 或 `source == "vscode"` 且 `thread_source != "subagent"` 的主会话，把本地 JSONL 事件桥接到同一套 `EventRouter`：
+
+```
+task_started → user_prompt
+user_message → user_prompt（刷新 prompt/title）
+function_call / custom_tool_call → pre_tool_use
+最后一个 function_call_output / custom_tool_call_output → post_tool_use
+task_complete → stop
+turn_aborted → stop（assistant_message = "Turn aborted"）
+```
+
+这条路径不是同步 hook：插件内的权限审批仍由 Codex VSCode / Cursor 自己处理，Hopet 不展示可交互审批卡，也不回写 Allow / Deny / Handoff 决策；`permission_ask` 继续只来自 Codex CLI hook。rollout 里即使能看到 `exec_command` 的 `sandbox_permissions = "require_escalated"`，Hopet 也只把它视为普通 `tool-use`。
+
 ---
 
 ## 2. PetState 优先级
