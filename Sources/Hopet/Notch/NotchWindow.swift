@@ -54,7 +54,7 @@ public final class NotchWindowController {
         guard let layout = NotchDetector.detect() else { return }
 
         // 无刘海机型：默认不显示降级顶条，避免遮挡菜单栏。
-        // 用户在偏好的 Behavior Tab 里把 notch.fallbackBarEnabled 打开后才显示。
+        // 用户在偏好的 Notch 设置里把 notch.fallbackBarEnabled 打开后才显示。
         if !layout.hasNotch {
             let fallback = UserDefaults.standard.object(forKey: "notch.fallbackBarEnabled") as? Bool ?? false
             guard fallback else {

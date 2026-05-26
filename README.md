@@ -127,15 +127,16 @@ Aider, etc.).
 
 ### Preference panel
 
-A standard macOS preferences window with seven tabs:
+A standard macOS preferences window with eight tabs:
 
 | Tab | Purpose |
 | --- | --- |
-| Overview | Pet status snapshot and active session list |
+| Overview | Pet status snapshot, pet / notch visibility, and active session list |
 | Themes | Built-in + user themes, import / apply / delete |
 | Appearance | Pet rendering options |
+| Bindings | Global pet theme binding |
 | Hooks | Claude Code / Codex hook install state and doctor |
-| Behavior | Drag snapping, idle visibility, FPS, etc. |
+| Behavior | Drag snapping, notch fallback, terminal, and diagnostics options |
 | Notifications | Per-category banner toggles |
 | About | Version, build, and credits |
 

@@ -130,7 +130,7 @@ public final class SceneRouter {
             thinkingTimer.start()
             decayTimer.start()
             codexVscodeWatcher.start()
-            petWindowController.show()
+            wirePetVisibility()
             wireNotchVisibility()
             HopetLog.info("Hopet booted.")
             HopetLog.trace("booted ok.")
@@ -149,7 +149,9 @@ public final class SceneRouter {
     }
 
     public func openPreferences() { preferencesController.show() }
-    public func togglePet()       { petWindowController.toggle() }
+    public func togglePet() {
+        UserDefaults.standard.set(!petWindowController.isVisible, forKey: "pet.visible")
+    }
 
     /// 把外观偏好映射到 `NSApp.appearance`：light → .aqua / dark → .darkAqua / system → nil。
     /// See preferences.md §6.4.
@@ -180,21 +182,44 @@ public final class SceneRouter {
         }
     }
 
-    /// 把灵动岛窗口的显示状态与 UserDefaults `notch.enabled` 绑定。BehaviorTab 上的
-    /// 开关、灵动岛右上角关闭按钮都通过写这同一个 key 触发 show/hide，单一真相源。
-    /// 启动时读一次决定初始可见，之后用 didChangeNotification 监听变化。removeDuplicates
-    /// 防止 UserDefaults 其它 key 改写也触发空跑。
-    private func wireNotchVisibility() {
-        let initial = UserDefaults.standard.object(forKey: "notch.enabled") as? Bool ?? true
-        if initial { notchController.show() }
+    /// 把宠物窗口可见性与 UserDefaults `pet.visible` 绑定。Overview 首页开关与菜单栏
+    /// "Toggle Pet Visibility" 都写这个 key；默认显示宠物，用户关闭后下次启动保持隐藏。
+    private func wirePetVisibility() {
+        let initial = UserDefaults.standard.object(forKey: "pet.visible") as? Bool ?? true
+        if initial { petWindowController.show() }
 
         NotificationCenter.default
             .publisher(for: UserDefaults.didChangeNotification, object: UserDefaults.standard)
-            .map { _ in UserDefaults.standard.object(forKey: "notch.enabled") as? Bool ?? true }
+            .map { _ in UserDefaults.standard.object(forKey: "pet.visible") as? Bool ?? true }
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] enabled in
-                enabled ? self?.notchController.show() : self?.notchController.hide()
+            .sink { [weak self] visible in
+                visible ? self?.petWindowController.show() : self?.petWindowController.hide()
+            }
+            .store(in: &configCancellables)
+    }
+
+    /// 把灵动岛窗口的显示状态与 UserDefaults `notch.enabled` 绑定。Overview / Behavior 上的
+    /// 开关、灵动岛右上角关闭按钮都通过写这同一个 key 触发 show/hide，单一真相源。
+    /// `notch.fallbackBarEnabled` 也纳入监听，让无刘海屏幕的降级顶条开关即时生效。
+    /// 启动时读一次决定初始可见，之后用 didChangeNotification 监听变化。
+    private func wireNotchVisibility() {
+        let initial = NotchVisibilityPreference.current()
+        if initial.enabled { notchController.show() }
+
+        NotificationCenter.default
+            .publisher(for: UserDefaults.didChangeNotification, object: UserDefaults.standard)
+            .map { _ in NotchVisibilityPreference.current() }
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] preference in
+                guard let self else { return }
+                if preference.enabled {
+                    self.notchController.hide()
+                    self.notchController.show()
+                } else {
+                    self.notchController.hide()
+                }
             }
             .store(in: &configCancellables)
     }
@@ -212,5 +237,17 @@ public final class SceneRouter {
             registry.remove(s.id)
             router.purgeTranscriptMaps(for: s.id)
         }
+    }
+}
+
+private struct NotchVisibilityPreference: Equatable {
+    let enabled: Bool
+    let fallbackBarEnabled: Bool
+
+    static func current() -> NotchVisibilityPreference {
+        NotchVisibilityPreference(
+            enabled: UserDefaults.standard.object(forKey: "notch.enabled") as? Bool ?? true,
+            fallbackBarEnabled: UserDefaults.standard.object(forKey: "notch.fallbackBarEnabled") as? Bool ?? false
+        )
     }
 }

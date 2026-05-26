@@ -220,7 +220,7 @@ flowchart LR
 
 ### 5.3 Pet/（宠物与气泡渲染）
 
-- `PetWindowController` + 嵌套的 `PetWindow: NSPanel` — 置顶、非激活、跨 Space 的宿主窗口
+- `PetWindowController` + 嵌套的 `PetWindow: NSPanel` — 置顶、非激活、跨 Space 的宿主窗口；可见性由 `SceneRouter` 绑定到 `UserDefaults pet.visible`
 - `PetStageView` (SwiftUI) — 一只宠物 + 紧贴它头顶的会话气泡列（**竖栈 + ScrollView**，详见 §12.4）
 - `PetBadgeView` — 宠物本体的占位徽章 / 动画容器
 - `SessionBubbleView` — 单个会话气泡：默认卡 / Permission 决策卡 / AskUserQuestion 答题卡 / ExitPlanMode 卡 / 普通问询卡
@@ -234,7 +234,7 @@ flowchart LR
 ### 5.4 Notch/（刘海条）
 
 - `NotchDetector` — 通过 `NSScreen.auxiliaryTopLeftArea / safeAreaInsets` 判断机型
-- `NotchWindow: NSPanel` — 吸附在刘海区域的无边框窗口；无刘海机型 + `UserDefaults notch.fallbackBarEnabled = true` 时降级为顶部细条（同一个 `NotchWindow`，不再有独立的 `FallbackTopBarWindow` 类）
+- `NotchWindow: NSPanel` — 吸附在刘海区域的无边框窗口；可见性由 `UserDefaults notch.enabled` 控制；无刘海机型 + `UserDefaults notch.fallbackBarEnabled = true` 时降级为顶部细条（同一个 `NotchWindow`，不再有独立的 `FallbackTopBarWindow` 类）
 - `NotchView` (SwiftUI) — 三态：collapsed / expanded / fullBubble
 
 ### 5.5 Panel/（偏好面板）

@@ -9,6 +9,8 @@ public final class PetWindowController {
     private let inputCoordinator: InputCoordinator
     private var window: PetWindow?
 
+    public var isVisible: Bool { window?.isVisible == true }
+
     public init(
         registry: SessionRegistry,
         themes: ThemeStore,
@@ -23,16 +25,20 @@ public final class PetWindowController {
         ensureWindow().orderFrontRegardless()
     }
 
+    public func hide() {
+        window?.orderOut(nil)
+    }
+
     public func toggle() {
-        if let win = window, win.isVisible {
-            win.orderOut(nil)
+        if isVisible {
+            hide()
         } else {
             show()
         }
     }
 
     public func locate() {
-        guard let win = window else { return }
+        let win = ensureWindow()
         win.makeKeyAndOrderFront(nil)
         // 简单的"闪烁定位"：alpha 抖动一次。
         win.alphaValue = 0.3

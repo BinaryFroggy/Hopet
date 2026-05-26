@@ -315,6 +315,7 @@ Tab 顺序：**Overview · Themes · Appearance · Bindings · Hooks · Behavior
 #### 3.6.1 Overview
 
 - 全局宠物卡片：状态 glyph + 活跃 session 数 + Locate 按钮（让宠物闪烁定位）
+- Display 快捷卡片：`Show notch bar` 写入 `UserDefaults notch.enabled`，实时显示 / 隐藏刘海条；`Show pet` 写入 `UserDefaults pet.visible`，实时显示 / 隐藏宠物窗口
 - Sessions 列表：每个 session 一行（工具名 / 标题 / state / badgeLabel / 用时 / `×` 删除按钮）
 - 空状态提示
 
@@ -344,7 +345,7 @@ Tab 顺序：**Overview · Themes · Appearance · Bindings · Hooks · Behavior
 
 #### 3.6.6 Behavior
 
-四块 `PixelCard`（General / Notch / Terminal / Diagnostics），目前仅为占位骨架——具体偏好项尚未真正联通到运行时行为。
+四块 `PixelCard`（General / Notch / Terminal / Diagnostics）。Notch 区的 `Show notch bar` 与 Overview 的同名开关共享 `UserDefaults notch.enabled`，实时控制刘海条可见性；`Show top bar on non-notch displays` 写入 `UserDefaults notch.fallbackBarEnabled`，只影响无物理刘海屏幕上的降级顶条。其它 Behavior 项仍是偏好 UI 骨架，未全部接入运行时。
 
 #### 3.6.7 Notifications
 
@@ -476,7 +477,15 @@ GIF 渲染走 `GIFAnimationView`：`ImageIO` 解码所有帧，保留 GIF 内嵌
 | `listeners.claudeCode` | Bool | `true` | Claude Code listener 软静音；off 时 EventRouter 静默丢事件、SceneRouter 清掉无 pending 的气泡，hook 文件不动 |
 | `listeners.codex` | Bool | `true` | Codex CLI listener 软静音；与上同义 |
 
-其它过去文档列出的 `general.launchAtLogin` / `notch.enabled` / `pet.maxConcurrent` / `bubble.preferredTerminal` / `notifications.*` / `advanced.logLevel` 等键，BehaviorTab / NotificationsTab 当前只是 UI 占位骨架，**未真正联通到运行时行为，也未写入 config.json**。`notch.fallbackBarEnabled` 仍由 `UserDefaults` 单独承载（不在 HopetConfig 里）。这些项会在 v0.2 真正落地时补入 HopetConfig schema。
+以下 UI 可见性偏好刻意保留在 `UserDefaults`，不进入 `~/.hopet/config.json`：
+
+| 键 | 类型 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `pet.visible` | Bool | `true` | Overview / 菜单栏 Toggle 的单一真相源；`SceneRouter` 实时 show/hide 宠物窗口 |
+| `notch.enabled` | Bool | `true` | Overview / Behavior Notch 的单一真相源；`SceneRouter` 实时 show/hide 刘海条 |
+| `notch.fallbackBarEnabled` | Bool | `false` | 无物理刘海显示器的降级顶条开关；只有 `notch.enabled = true` 时才可能显示，切换后由 `SceneRouter` 立即重算 |
+
+其它过去文档列出的 `general.launchAtLogin` / `pet.maxConcurrent` / `bubble.preferredTerminal` / `notifications.*` / `advanced.logLevel` 等键，BehaviorTab / NotificationsTab 当前只是 UI 占位骨架，**未全部联通到运行时行为，也未写入 config.json**。这些项会在 v0.2 真正落地时补入 HopetConfig schema。
 
 ---
 

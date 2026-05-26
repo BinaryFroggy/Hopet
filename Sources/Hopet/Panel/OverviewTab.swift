@@ -4,6 +4,8 @@ import SwiftUI
 /// See preferences.md §11.6.
 struct OverviewTab: View {
     @ObservedObject var registry: SessionRegistry
+    @AppStorage("notch.enabled") private var notchVisible: Bool = true
+    @AppStorage("pet.visible") private var petVisible: Bool = true
     let controller: PetWindowController
 
     var body: some View {
@@ -12,7 +14,14 @@ struct OverviewTab: View {
                 PixelPetCard(
                     pet: registry.pet,
                     sessionCount: registry.sessions.count,
-                    onLocate: { controller.locate() }
+                    onLocate: {
+                        petVisible = true
+                        controller.locate()
+                    }
+                )
+                PixelDisplayCard(
+                    notchVisible: $notchVisible,
+                    petVisible: $petVisible
                 )
                 Spacer(minLength: 0)
             }
@@ -39,6 +48,21 @@ struct OverviewTab: View {
                     }
                 }
             }
+        }
+    }
+}
+
+private struct PixelDisplayCard: View {
+    @Binding var notchVisible: Bool
+    @Binding var petVisible: Bool
+
+    var body: some View {
+        PixelCard("DISPLAY", titleTint: PixelPalette.candyPink) {
+            VStack(alignment: .leading, spacing: 10) {
+                PixelToggleRow(label: "Show notch bar", isOn: $notchVisible)
+                PixelToggleRow(label: "Show pet", isOn: $petVisible)
+            }
+            .frame(width: 220, height: 120, alignment: .topLeading)
         }
     }
 }

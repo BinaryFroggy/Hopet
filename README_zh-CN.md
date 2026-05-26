@@ -79,15 +79,16 @@ Hopet 通过 agent CLI 的生命周期 hook 工作；对 Codex VS Code 插件则
 
 ### 偏好面板
 
-标准 macOS 偏好窗口，共 7 个 Tab：
+标准 macOS 偏好窗口，共 8 个 Tab：
 
 | Tab | 用途 |
 | --- | --- |
-| Overview | 宠物当前状态快照与活跃 session 列表 |
+| Overview | 宠物当前状态、宠物 / 刘海条显示开关与活跃 session 列表 |
 | Themes | 内置主题 + 用户主题，导入 / 应用 / 删除 |
 | Appearance | 宠物渲染相关选项 |
+| Bindings | 全局宠物主题绑定 |
 | Hooks | Claude Code / Codex hook 安装状态与诊断 |
-| Behavior | 拖拽吸附、idle 可见性、动画帧率等 |
+| Behavior | 拖拽吸附、刘海条降级、终端与诊断选项 |
 | Notifications | 各类横幅通知的分类开关 |
 | About | 版本号、构建号、致谢 |
 
