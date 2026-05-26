@@ -220,7 +220,7 @@ flowchart LR
 
 ### 5.3 Pet/（宠物与气泡渲染）
 
-- `PetWindowController` + 嵌套的 `PetWindow: NSPanel` — 置顶、非激活、跨 Space 的宿主窗口
+- `PetWindowController` + 嵌套的 `PetWindow: NSPanel` — 置顶、非激活、跨 Space 的宿主窗口；可见性由 `SceneRouter` 绑定到 `UserDefaults pet.visible`
 - `PetStageView` (SwiftUI) — 一只宠物 + 紧贴它头顶的会话气泡列（**竖栈 + ScrollView**，详见 §12.4）
 - `PetBadgeView` — 宠物本体的占位徽章 / 动画容器
 - `SessionBubbleView` — 单个会话气泡：默认卡 / Permission 决策卡 / AskUserQuestion 答题卡 / ExitPlanMode 卡 / 普通问询卡
@@ -234,7 +234,7 @@ flowchart LR
 ### 5.4 Notch/（刘海条）
 
 - `NotchDetector` — 通过 `NSScreen.auxiliaryTopLeftArea / safeAreaInsets` 判断机型
-- `NotchWindow: NSPanel` — 吸附在刘海区域的无边框窗口；无刘海机型 + `UserDefaults notch.fallbackBarEnabled = true` 时降级为顶部细条（同一个 `NotchWindow`，不再有独立的 `FallbackTopBarWindow` 类）
+- `NotchWindow: NSPanel` — 吸附在刘海区域的无边框窗口；可见性由 `UserDefaults notch.enabled` 控制；无刘海机型 + `UserDefaults notch.fallbackBarEnabled = true` 时降级为顶部细条（同一个 `NotchWindow`，不再有独立的 `FallbackTopBarWindow` 类）
 - `NotchView` (SwiftUI) — 三态：collapsed / expanded / fullBubble
 
 ### 5.5 Panel/（偏好面板）
@@ -321,6 +321,8 @@ public struct Session: Codable, Identifiable, Hashable, Sendable {
 `PendingPermission` 含 `requestId / toolName / command / filePath / plan`；其中 `toolName == "ExitPlanMode"` 时承载已 trim 的 plan markdown，气泡渲染 plan-approval 卡片（与普通 allow/deny 卡片展开高度差近 200 pt，所以 `SessionPendingKind` 把它单独列项）。
 
 `PendingAskUser` 含 `requestId / questions: [AskUserQuestionItem] / originalToolInputJSON: Data`；用户作答后把 `answers = { 问题: 答案 }` 合进 `originalToolInputJSON` 作为 `updatedInput` 同步回写，Claude 把它当作 AskUserQuestion 工具的结果。
+
+Codex VSCode / Cursor 插件不会触发 `~/.codex/hooks.json`；Hopet 通过 `CodexVscodeSessionWatcher` 只读监听本机 `~/.codex/sessions/**/rollout-*.jsonl`，把 `task_started / user_message / function_call / function_call_output / task_complete / turn_aborted` 映射成同一批 `StateEvent` 后交给 `EventRouter`。该路径只负责状态展示，不生成 `permission_ask`，也不提供权限审批同步回包；插件自己的审批弹窗仍由 Codex VSCode / Cursor 处理。
 
 ### 6.3 PetState
 
@@ -777,6 +779,14 @@ Codex CLI 0.129.0-alpha 起公开了与 Claude 几乎一致的细粒度生命周
 
 **迁移：旧版 Hopet 写入的 `~/.codex/config.toml [notify]` 块** 在 install 时会被自动清理（识别 `# >>> hopet-managed >>>` / `# <<< hopet-managed <<<` 守卫行），避免 stop 事件被双发。
 
+#### 8.5.4 Codex VSCode / Cursor 本地 rollout 监听
+
+Codex VSCode / Cursor 插件主会话不触发 `~/.codex/hooks.json`。Hopet App 启动时额外通过 `CodexVscodeSessionWatcher` 扫描并增量读取 `~/.codex/sessions/**/rollout-*.jsonl`，只接入 `session_meta.originator == "codex_vscode"` 或 `source == "vscode"` 且 `thread_source != "subagent"` 的主会话。
+
+映射范围限定为非阻塞状态：`task_started / user_message` → `user_prompt`，`function_call / custom_tool_call` → `pre_tool_use`，最后一个 `function_call_output / custom_tool_call_output` → `post_tool_use`，`task_complete / turn_aborted` → `stop`。初始化扫描只读取文件头部 metadata 与尾部近期事件，避免大 rollout 文件在主线程全量解码。
+
+权限审批不在这条路径内：rollout 中的 `exec_command` 可能携带 `sandbox_permissions = "require_escalated"` 和 `justification`，但没有同步 decision channel。Hopet 因此不展示 Codex VSCode / Cursor 插件的可交互审批气泡，Allow / Deny / Handoff 仍由插件自身 UI 处理。
+
 ---
 
 ## 9. 附录 B：主题包规范
@@ -1011,6 +1021,7 @@ SpriteKit 实现为 `SpriteKitPetRenderer`，后续可新增 `Live2DPetRenderer`
 - [x] `hopet-emit` Swift CLI helper：长度前缀 JSON 帧、白名单字段过滤、Codex `stop_hook_active` / `session_id` 兜底、Stop hook 从 transcript 抽 `assistant_message`
 - [x] Claude Code hooks：SessionStart / SessionEnd / UserPromptSubmit / Pre&PostToolUse（含 AskUserQuestion `--require` / `--exclude` 路由）/ PostToolUseFailure / PermissionRequest / Stop / StopFailure（权威清单见 [hooks-and-priority.md §1.1](./hooks-and-priority.md#11-实际订阅的-claude-code-hook)；不再注册 Notification）
 - [x] Codex CLI hooks：SessionStart / UserPromptSubmit / Pre&PostToolUse / PermissionRequest / Stop（写入 `~/.codex/hooks.json`，install 时清掉 `~/.codex/config.toml` 历史 `[notify]` 块）
+- [x] Codex VSCode / Cursor 插件状态监听：只读 `~/.codex/sessions/**/rollout-*.jsonl`，仅展示非阻塞生命周期；插件权限审批不接管
 - [x] 内置 Hopi 主题（8 种状态动画 21 或 28 帧；`scripts/build-pet-animation.py` 切 sprite sheet）
 - [x] PetInstance 全局唯一 + SwiftUI 帧动画 + 聚合状态切换
 - [x] SessionBubble 渲染：**竖栈贴宠物头顶 + ScrollView 滚动**、cwd / title / state / stateDurationPhrase、leader 高亮、Permission / AskUser / ExitPlanMode 自动展开
@@ -1064,4 +1075,3 @@ SpriteKit 实现为 `SpriteKitPetRenderer`，后续可新增 `Live2DPetRenderer`
 ## 文档关联
 
 - 本文档聚焦"如何构建"；面向用户的"做了什么"请见 [features.md](./features.md)。
-

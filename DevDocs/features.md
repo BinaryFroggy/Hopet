@@ -20,7 +20,7 @@
 | --- | --- | --- |
 | AI 正在跑一个长任务，用户去看文档 | 不时切回终端检查进度 | 宠物一直"回复中"动画；完成时播放"完成"动画并可弹通知 |
 | AI 问用户 AskUserQuestion | 用户没注意到终端已停等待 | 宠物切到"询问"专属动画 + 刘海条文字提醒 + （可选）通知 |
-| 需要权限确认（Bash/Edit） | 长任务里夹杂多次权限弹窗，容易错过 | 宠物切到"权限请求"动画；刘海条高亮 |
+| 需要权限确认（Bash/Edit） | 长任务里夹杂多次权限弹窗，容易错过 | hook-backed CLI 会话切到"权限请求"动画并展示决策卡；Codex VSCode / Cursor 插件审批仍用插件自己的 UI |
 | 多个会话并发（`cc-1` / `cc-2` / codex） | 哪个在跑、哪个卡住不清楚 | 每个会话独立宠物，位置互不重叠 |
 
 ---
@@ -33,6 +33,7 @@
 | --- | --- | --- | --- |
 | 状态感知动画（Claude Code，idle / responding / thinking / tool-use / permission-prompt / ask-user / completed） | ✅ 含 ask-user（通过 AskUserQuestion tool 路由） | ✅ | ✅ |
 | 状态感知动画（Codex CLI 0.129+，无 ask-user 和 error-interrupted） | ✅ 6 hook 完整生命周期（`~/.codex/hooks.json`） | ✅ | ✅ |
+| 状态感知动画（Codex VSCode / Cursor 插件） | ✅ 只读本地 rollout，会话 / 回复 / 工具 / 完成状态；不接管插件权限审批 | ✅ | ✅ |
 | `error-interrupted` 状态有事件源 | ⛔ 枚举值保留，但 `PostToolUseFailure` 太常态已停用；见 [hooks-and-priority.md §1.1 注 2](./hooks-and-priority.md#11-实际订阅的-claude-code-hook) | 视未来真"会话级错误"事件出现而定 | TBD |
 | 刘海屏 Dynamic Notch | ✅ 三态：collapsed / expanded / fullBubble | ✅ | ✅ |
 | 顶部悬浮条降级（无刘海机型，`notch.fallbackBarEnabled`） | ✅ | ✅ | ✅ |
@@ -100,29 +101,29 @@
 ```mermaid
 stateDiagram-v2
     [*] --> collapsed
-    collapsed --> expanded: 鼠标靠近 120px / 高优先级状态
-    expanded --> collapsed: 鼠标离开 + 回 idle / collapseDelay 超时
+    collapsed --> expanded: hover 显示 ↓ 后点击 / 高优先级状态
+    expanded --> collapsed: 点击 ↑ / completed 摘要 3s 超时 / pending 消失
 ```
 
 各态的视觉呈现：
 
 | 态 | 尺寸 | 内容 | 触发 |
 | --- | --- | --- | --- |
-| **collapsed** | 与刘海像素对齐的黑色胶囊 | 一个小色点代表最高优先级状态色（绿/橙/红） | 默认态 |
-| **expanded** | 最大 560×44 | AI 名称 + 当前状态文案（`PetState.notchCaption`，全英文）+ 计时器 | 鼠标靠近 120 px 内 或 出现 permission-prompt / ask-user |
+| **collapsed** | 贴近物理刘海宽度的黑色区域（有刘海机型约 160–220 pt，无刘海降级 184 pt），高度 = 顶部刘海保留区 + 26 pt 状态条 | 底部状态条显示小色点 + 最高优先级状态文案（`Idle` / `Thinking…` / `Responding…` 等）；hover 时右侧显示 ↓ | 默认态 |
+| **expanded** | 最大宽度 560 pt，高度按内容包裹且不超过屏幕高度 1/4；completed 摘要独立停留 3s 后收起（不受 completed→idle 2s 降级影响） | 顶部预留 ↑ 收起控制区，正文从其下方开始；权限 / AskUser / 完成摘要卡片；手动展开时显示当前会话详情（状态 / cwd / 最近提问 / 最近回复，耗时每秒刷新）；不再显示独立关闭按钮 | 点击 collapsed 的 ↓ 或 出现 permission-prompt / ask-user / completed |
 | **fullBubble** | 视气泡内容自适应 | 把活跃气泡内容直接嵌进刘海下方（实验态，仅 `NotchView.swift` 内含） | 内部用 |
 
 #### 3.2.2 吸附与动效
 
-- 定位：使用 `NSScreen.auxiliaryTopLeftArea`（macOS 14+）获得刘海精确 rect，`NotchWindow` 严格对齐其下边缘。
-- 伸展动效：高度 0 → 44，宽度 按内容撑开到最大 560；`spring(response: 0.35, damping: 0.85)`。
-- Level：`.statusBar + 1`，跨所有 Space、不进入 Mission Control。
-- 多屏：仅在"主屏幕"渲染刘海条；外接显示器上宠物本体正常显示，仅无刘海条。
+- 定位：使用 `NSScreen.safeAreaInsets` 与 `auxiliaryTopLeftArea / auxiliaryTopRightArea`（macOS 14+）推导主屏刘海 gap；有刘海屏从屏幕顶端开始渲染纯黑区域，高度覆盖顶部安全区并在底部追加 26 pt 状态条，状态文案只放在底部状态条。无刘海降级条吸附菜单栏下沿。
+- 伸展动效：窗口顶部锚定，expanded 与 collapsed 共用同一个屏幕中心点，宽度从中点向两侧撑开到最大 560，高度从上往下按内容展开；`spring(response: 0.44, damping: 0.92)`，窗口 frame 使用 0.42s ease-in-out。
+- Level：`.statusBar + 1`，确保菜单栏不会盖住刘海下沿补黑区域；窗口宽度限制在刘海中心 gap，跨所有 Space、不进入 Mission Control。
+- 多屏：优先在带刘海的内建屏幕渲染刘海条；没有刘海屏时才使用主屏幕降级条。外接显示器上宠物本体正常显示。
 
 #### 3.2.3 降级策略（无刘海机型）
 
 - 无 `safeAreaInsets.top > 0` 的 Mac → 启用 `FallbackTopBarWindow`：
-  - 屏幕顶部中央悬浮一条 280×28 的胶囊
+  - 屏幕顶部中央悬浮一条 184×26 的黑色下沿
   - 与刘海条具备相同的三态能力
   - 默认关闭，可在偏好中开启（避免遮挡菜单栏）
 - 用户亦可在偏好里强制切换为"仅宠物，不要顶部条"。
@@ -175,17 +176,21 @@ v0.1 只有两个用户输入入口，都建立在 **Claude 主动开口**（hoo
 
 启动新会话的方式：用户照常在自己的终端 / Cursor / VS Code / IDE 内嵌终端里打 `claude` / `codex`，Hopet 通过 hook 自动感知，新气泡随 SessionStart 事件出现。
 
+Codex VSCode / Cursor 插件主会话不触发 `~/.codex/hooks.json`；Hopet 通过本地 rollout watcher 只读感知其状态。该路径没有同步审批回包，因此插件弹出的权限审批不展示 Hopet 决策卡。
+
 #### 3.4.1 PermissionRequest 自动展开
 
 当 Claude 触发 `PermissionRequest` hook（如要执行 Bash/Edit 等需要权限的工具）：
 
 1. hopet-emit 通过 socket 把请求转给 Hopet，**Claude 进程被挂起等响应**（30s 超时）
 2. 该 session 的气泡**自动从环绕态展开**为 360×160 的决策卡，显示工具名 + 命令/路径预览
-3. 用户点 **允许** / **拒绝** / **交给终端**
+3. 用户点 **Allow** / **Deny** / **Handoff**
 4. 决策通过同一条挂起的 socket 回写：`{ "hookSpecificOutput": { "hookEventName": "PermissionRequest", "decision": { "behavior": "allow"|"deny" } } }`
 5. Claude 拿到决策继续工具调用循环；如选"交给终端"则回 `{}`，Claude 自走它的 TUI 弹窗
 
 跨 iTerm / Apple Terminal / VS Code / Cursor 内嵌终端 / Ghostty / Warp 等所有宿主工作——这条路是协议级的，跟终端注入路径无关。
+
+Codex VSCode / Cursor 插件自己的审批弹窗不走这条 hook socket；Hopet 不接管其 Allow / Deny / Handoff，审批期间最多展示普通工具执行状态。
 
 #### 3.4.2 AskUserQuestion 自动展开
 
@@ -310,6 +315,7 @@ Tab 顺序：**Overview · Themes · Appearance · Bindings · Hooks · Behavior
 #### 3.6.1 Overview
 
 - 全局宠物卡片：状态 glyph + 活跃 session 数 + Locate 按钮（让宠物闪烁定位）
+- Display 快捷卡片：`Show notch bar` 写入 `UserDefaults notch.enabled`，实时显示 / 隐藏刘海条；`Show pet` 写入 `UserDefaults pet.visible`，实时显示 / 隐藏宠物窗口
 - Sessions 列表：每个 session 一行（工具名 / 标题 / state / badgeLabel / 用时 / `×` 删除按钮）
 - 空状态提示
 
@@ -339,7 +345,7 @@ Tab 顺序：**Overview · Themes · Appearance · Bindings · Hooks · Behavior
 
 #### 3.6.6 Behavior
 
-四块 `PixelCard`（General / Notch / Terminal / Diagnostics），目前仅为占位骨架——具体偏好项尚未真正联通到运行时行为。
+四块 `PixelCard`（General / Notch / Terminal / Diagnostics）。Notch 区的 `Show notch bar` 与 Overview 的同名开关共享 `UserDefaults notch.enabled`，实时控制刘海条可见性；`Show top bar on non-notch displays` 写入 `UserDefaults notch.fallbackBarEnabled`，只影响无物理刘海屏幕上的降级顶条。其它 Behavior 项仍是偏好 UI 骨架，未全部接入运行时。
 
 #### 3.6.7 Notifications
 
@@ -471,7 +477,15 @@ GIF 渲染走 `GIFAnimationView`：`ImageIO` 解码所有帧，保留 GIF 内嵌
 | `listeners.claudeCode` | Bool | `true` | Claude Code listener 软静音；off 时 EventRouter 静默丢事件、SceneRouter 清掉无 pending 的气泡，hook 文件不动 |
 | `listeners.codex` | Bool | `true` | Codex CLI listener 软静音；与上同义 |
 
-其它过去文档列出的 `general.launchAtLogin` / `notch.enabled` / `pet.maxConcurrent` / `bubble.preferredTerminal` / `notifications.*` / `advanced.logLevel` 等键，BehaviorTab / NotificationsTab 当前只是 UI 占位骨架，**未真正联通到运行时行为，也未写入 config.json**。`notch.fallbackBarEnabled` 仍由 `UserDefaults` 单独承载（不在 HopetConfig 里）。这些项会在 v0.2 真正落地时补入 HopetConfig schema。
+以下 UI 可见性偏好刻意保留在 `UserDefaults`，不进入 `~/.hopet/config.json`：
+
+| 键 | 类型 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `pet.visible` | Bool | `true` | Overview / 菜单栏 Toggle 的单一真相源；`SceneRouter` 实时 show/hide 宠物窗口 |
+| `notch.enabled` | Bool | `true` | Overview / Behavior Notch 的单一真相源；`SceneRouter` 实时 show/hide 刘海条 |
+| `notch.fallbackBarEnabled` | Bool | `false` | 无物理刘海显示器的降级顶条开关；只有 `notch.enabled = true` 时才可能显示，切换后由 `SceneRouter` 立即重算 |
+
+其它过去文档列出的 `general.launchAtLogin` / `pet.maxConcurrent` / `bubble.preferredTerminal` / `notifications.*` / `advanced.logLevel` 等键，BehaviorTab / NotificationsTab 当前只是 UI 占位骨架，**未全部联通到运行时行为，也未写入 config.json**。这些项会在 v0.2 真正落地时补入 HopetConfig schema。
 
 ---
 

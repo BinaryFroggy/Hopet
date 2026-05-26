@@ -33,8 +33,8 @@ struct BehaviorTab: View {
     private var sectionNotch: some View {
         PixelCard("NOTCH", titleTint: PixelPalette.candyPink) {
             VStack(alignment: .leading, spacing: 10) {
-                PixelToggleRow(label: "Enable notch indicator", isOn: $notchEnabled)
-                PixelToggleRow(label: "Fallback top bar on non-notch displays", isOn: $notchFallback)
+                PixelToggleRow(label: "Show notch bar", isOn: $notchEnabled)
+                PixelToggleRow(label: "Show top bar on non-notch displays", isOn: $notchFallback)
             }
         }
     }
@@ -72,4 +72,3 @@ struct BehaviorTab: View {
         }
     }
 }
-

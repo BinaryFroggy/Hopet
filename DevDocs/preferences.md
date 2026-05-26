@@ -58,7 +58,7 @@ Overview · Themes · Appearance · Bindings · Hooks · Behavior · Notifs · A
 | 外观 | 新增 `AppearanceTab` | 单 Picker（明亮 / 深色 / 跟随系统），实时生效；按 §11 像素风规范渲染 |
 | 监听设置 | 重做 `HooksTab` | 把 Install/Uninstall 双按钮收敛为 Toggle 列表；Claude Code 默认开；Codex 显示但底层 install 报错时不致命，UI 层退回未勾选并提示；按 §11 像素风规范渲染 |
 
-不动其他 Tab：Overview / Bindings / Behavior / Notifications / About 保持原样（但 §11 复用部件提升后，它们也会自然继承像素外壳，无需逐个改写）。Bindings 因 `themes.themes` 增加用户主题项而自然受益，无需修改。
+Overview 保留宠物状态摘要与 session 列表，并提供 Display 快捷开关；Behavior 保留更完整的运行偏好分组。Bindings 因 `themes.themes` 增加用户主题项而自然受益，无需修改。
 
 > **整体风格约束**：所有 Tab 内容的视觉规范见 §11，与宠物气泡、刘海条同语言（pixel pitch=2、阶梯圆角、硬黑描边、块状投影、顶部高光、亮/暗自适应）。
 
@@ -344,8 +344,8 @@ struct FrameAnimationView: View {
 | `Sources/Hopet/Panel/AppearanceTab.swift` | 新增 | ✅ |
 | `Sources/Hopet/Panel/HooksTab.swift` | 修改 | ✅ `PixelToggle` 列表 + Doctor；Codex 现在真实 install 到 `~/.codex/hooks.json` |
 | `Sources/Hopet/Panel/BindingsTab.swift` | 修改 | ✅ 全局主题 `Picker(.menu)` |
-| `Sources/Hopet/Panel/OverviewTab.swift` | 修改 | ✅ |
-| `Sources/Hopet/Panel/BehaviorTab.swift` | 新增 | ✅ 骨架（占位 Toggle / Segmented，未联通运行时行为） |
+| `Sources/Hopet/Panel/OverviewTab.swift` | 修改 | ✅ 宠物状态摘要 + Display 快捷开关（`pet.visible` / `notch.enabled`） |
+| `Sources/Hopet/Panel/BehaviorTab.swift` | 新增 | ✅ Notch 可见性已接运行时；其它 Toggle / Segmented 仍有规划态项 |
 | `Sources/Hopet/Panel/NotificationsTab.swift` | 新增 | ✅ 骨架（未注册 UserNotifications） |
 | `Sources/Hopet/Panel/AboutTab.swift` | 新增 | ✅ |
 | `Sources/Hopet/App/SceneRouter.swift` | 修改 | ✅ boot 接入 ConfigStore，订阅 appearance 变化 |
@@ -578,12 +578,12 @@ PreferencesPaneScaffold(title: "Installed Themes") {
 
 | Tab | 主要部件 | 备注 |
 |---|---|---|
-| OverviewTab | 顶部单张像素 `PixelPetCard`（全局宠物：状态 glyph + 活跃 session 数 + Locate 按钮）+ 下方 `PixelCard` 包裹的 session 列表 | session 列表每行：状态色圆点 + 工具名 + 标题 + badgeLabel + 用时 + `×` 删除按钮（`PixelButtonStyle.gray`） |
+| OverviewTab | 顶部 `PixelPetCard`（全局宠物：状态 glyph + 活跃 session 数 + Locate 按钮）+ `PixelDisplayCard`（`Show notch bar` / `Show pet`）+ 下方 `PixelCard` 包裹的 session 列表 | `Show notch bar` 写 `UserDefaults notch.enabled`；`Show pet` 写 `UserDefaults pet.visible`；session 列表每行：状态色圆点 + 工具名 + 标题 + badgeLabel + 用时 + `×` 删除按钮（`PixelButtonStyle.gray`） |
 | ThemesTab | `PixelButtonStyle.prominent` 的 "Import Theme…" + `PixelCard` ×N（每主题一张：56×56 预览首帧 + 名称 + 描述 + Apply / Delete 按钮） | 主题预览首帧用 `FrameAnimationView` 渲染并叠 `PixelChrome` 边框，关闭抗锯齿；用户主题显示 `[user]` 角标 |
 | AppearanceTab | `PixelCard` 包裹 `PixelSegmentedControl` 三选一 | 选项文字 "Light / Dark / System"；下方一行 monospaced 11pt 解释当前生效 |
 | BindingsTab | 单个 `PixelCard`：全局主题 `Picker(.menu)` | Picker 弹层保留系统外观（§11.2.3）；宠物全局唯一，无按工具绑定 |
 | HooksTab | 由 `AITool.recognized` 循环渲染 `PixelCard`（每工具一张：工具名 + Listening on/off + `PixelToggle`，软静音开关）；底部 `PixelCard` 包裹 Doctor "Run" 按钮 + monospaced ScrollView | hooks 启动时无条件落盘；toggle off 时 EventRouter 静默丢弃事件，且 SceneRouter 立即清扫该工具下无待决策气泡（挂着 permission/askUser 的会话保留到下一轮决策落定再清） |
-| BehaviorTab | 4 个 `PixelCard`（General / Notch / Terminal / Diagnostics）：前两块全 `PixelToggle`，后两块 `PixelSegmentedControl` | `preferredTerminal` 2 选、`logLevel` 4 选 |
+| BehaviorTab | 4 个 `PixelCard`（General / Notch / Terminal / Diagnostics）：前两块全 `PixelToggle`，后两块 `PixelSegmentedControl` | Notch 区：`Show notch bar` 是刘海条总开关，`Show top bar on non-notch displays` 仅控制无物理刘海屏幕的降级顶条；`preferredTerminal` 2 选、`logLevel` 4 选 |
 | NotificationsTab | 2 个 `PixelCard`（Banners 全 `PixelToggle` / Sound 占位说明） | |
 | AboutTab | 居中 `PixelCard`：项目标题 + 版本 + 一句话描述 + feedback Link | |
 | 导入 sheet | 顶部 `PixelCard`（主题名 TextField）+ 8 个 `PixelDropSlot` 网格（2 列 × 4 行）+ 底部 Cancel / Import 按钮 | 缺帧提示用红色（`PetState.errorInterrupted.accentColor` 等价值）的 monospaced 11pt 文字 |
