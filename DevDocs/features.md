@@ -110,7 +110,7 @@ stateDiagram-v2
 | 态 | 尺寸 | 内容 | 触发 |
 | --- | --- | --- | --- |
 | **collapsed** | 贴近物理刘海宽度的黑色区域（有刘海机型约 160–220 pt，无刘海降级 184 pt），高度 = 顶部刘海保留区 + 26 pt 状态条 | 底部状态条显示小色点 + 最高优先级状态文案（`Idle` / `Thinking…` / `Responding…` 等）；hover 时右侧显示 ↓ | 默认态 |
-| **expanded** | 最大宽度 560 pt，高度按内容包裹且不超过屏幕高度 1/4；completed 摘要独立停留 3s 后收起（不受 completed→idle 2s 降级影响） | 权限 / AskUser / 完成摘要卡片；手动展开时显示当前会话详情（状态 / cwd / 最近提问 / 最近回复，耗时每秒刷新）；顶部显示 ↑ 可手动收起，不再显示独立关闭按钮 | 点击 collapsed 的 ↓ 或 出现 permission-prompt / ask-user / completed |
+| **expanded** | 最大宽度 560 pt，高度按内容包裹且不超过屏幕高度 1/4；completed 摘要独立停留 3s 后收起（不受 completed→idle 2s 降级影响） | 顶部预留 ↑ 收起控制区，正文从其下方开始；权限 / AskUser / 完成摘要卡片；手动展开时显示当前会话详情（状态 / cwd / 最近提问 / 最近回复，耗时每秒刷新）；不再显示独立关闭按钮 | 点击 collapsed 的 ↓ 或 出现 permission-prompt / ask-user / completed |
 | **fullBubble** | 视气泡内容自适应 | 把活跃气泡内容直接嵌进刘海下方（实验态，仅 `NotchView.swift` 内含） | 内部用 |
 
 #### 3.2.2 吸附与动效

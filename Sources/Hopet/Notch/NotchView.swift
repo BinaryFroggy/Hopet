@@ -59,6 +59,8 @@ public struct NotchView: View {
     @State private var hoverCollapsed = false
     @State private var userCollapsedReasonIdentity: String? = nil
 
+    private let expandedControlInset: CGFloat = 28
+
     public init(
         registry: SessionRegistry,
         layout: NotchDetector.Layout,
@@ -120,6 +122,8 @@ public struct NotchView: View {
                 VStack(spacing: 0) {
                     Color.clear
                         .frame(height: layout.notchReservedHeight)
+                    Color.clear
+                        .frame(height: expandedControlInset)
                     expandedContent(r)
                 }
                     .frame(maxWidth: .infinity, minHeight: expandedHeight(for: r), maxHeight: expandedHeight(for: r), alignment: .top)
@@ -206,19 +210,20 @@ public struct NotchView: View {
     private func expandedHeight(for reason: ExpandReason) -> CGFloat {
         let maxHeight = layout.expandedRect.height
         let contentMaxHeight = max(0, maxHeight - layout.notchReservedHeight)
+        let cardMaxHeight = max(0, contentMaxHeight - expandedControlInset)
         let raw: CGFloat = switch reason {
         case .permission:
-            min(176, contentMaxHeight)
+            min(176, cardMaxHeight)
         case .planApproval:
-            contentMaxHeight
+            cardMaxHeight
         case .askUser:
-            min(260, contentMaxHeight)
+            min(260, cardMaxHeight)
         case .completed:
-            min(completedContentHeight > 0 ? completedContentHeight : 132, contentMaxHeight)
+            min(completedContentHeight > 0 ? completedContentHeight : 132, cardMaxHeight)
         case .details:
-            min(260, contentMaxHeight)
+            min(260, cardMaxHeight)
         }
-        return min(max(layout.notchReservedHeight + raw, layout.topBarRect.height), maxHeight)
+        return min(max(layout.notchReservedHeight + expandedControlInset + raw, layout.topBarRect.height), maxHeight)
     }
 
     private var collapseButton: some View {
