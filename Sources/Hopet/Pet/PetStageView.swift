@@ -16,6 +16,9 @@ public struct PetStageView: View {
     /// 手动关闭：用户点 defaultCard 右上角的 ✕，让用户兜底清掉僵尸气泡。
     /// 真活会话被误关也会在下一次状态事件冷启时重新出现。
     let onDismiss: (String) -> Void
+    /// 窗口应有高度变化时回调（气泡增减 / pending 展开收起）。PetWindowController
+    /// 据此 resize NSPanel 并保持 origin.y 不变，让海豹底部钉死、顶部随内容伸缩。
+    let onStageHeightChange: (CGFloat) -> Void
 
     @State private var now: Date = Date()
     @State private var scrollMetrics = ScrollMetrics()
@@ -43,14 +46,12 @@ public struct PetStageView: View {
         defaultBubbleHeight * CGFloat(maxVisibleBubbles)
         + interBubbleSpacing * CGFloat(maxVisibleBubbles - 1)
         + contentVerticalPadding * 2
-    /// 展开卡片可视区域上限：取窗口可用空间。permission / plan-approval / askUser
-    /// 变高时临时使用这个 cap，再配合 scrollTo 让边缘卡片不被裁切。
-    private static let expandedBubbleAreaMaxHeight: CGFloat =
-        PetWindow.stageSize.height
-        - PetBadgeView.renderedSize
-        - petBottomPadding
-        - bubbleToPetGap
-        - contentVerticalPadding * 2
+    /// 气泡可视区上限：取「5 个 default 卡片」与「单个 plan-approval 卡片」的较大者。
+    /// 窗口整体高度 = 气泡块（≤ 该上限）+ 海豹 + 底部留白，按实际气泡数动态收缩，
+    /// 不再固定成能容纳最坏情形的 620——否则没气泡时顶部全是空气，海豹被钉在窗口
+    /// 底部、永远拖不到屏幕上半部分。超过上限的气泡在 ScrollView 内滚动。
+    static let maxBubbleViewportHeight: CGFloat =
+        max(defaultBubbleAreaMaxHeight, planApprovalBubbleHeight)
     /// ScrollView 内容给描边预留的上下安全边。
     private static let contentVerticalPadding: CGFloat = 1
     /// 气泡列与宠物头顶之间的视觉间距。
@@ -65,13 +66,15 @@ public struct PetStageView: View {
         themes: ThemeStore,
         onResolvePermission: @escaping (String, String, String, String?) -> Void,
         onResolveAskUser: @escaping (String, String, [String: String], Bool) -> Void,
-        onDismiss: @escaping (String) -> Void = { _ in }
+        onDismiss: @escaping (String) -> Void = { _ in },
+        onStageHeightChange: @escaping (CGFloat) -> Void = { _ in }
     ) {
         self.registry = registry
         self.themes = themes
         self.onResolvePermission = onResolvePermission
         self.onResolveAskUser = onResolveAskUser
         self.onDismiss = onDismiss
+        self.onStageHeightChange = onStageHeightChange
     }
 
     private var pet: PetInstance {
@@ -91,13 +94,21 @@ public struct PetStageView: View {
     /// 一帧内 viewport 仍卡在旧值，content 顶部被 alignment .bottom 推出 ScrollView 可视区，
     /// 视觉上呈现"气泡比视口高、展示不完整"。
     /// 改为单向：sessions 形态变 → estimate 重算 → viewport 直接同步；measured 仅给滚动条用。
-    private func bubbleViewportHeight(sessions: [Session]) -> CGFloat {
+    static func bubbleViewportHeight(sessions: [Session]) -> CGFloat {
         guard !sessions.isEmpty else { return 0 }
         let estimated = estimatedBubbleContentHeight(sessions: sessions)
-        return min(estimated, PetStageView.expandedBubbleAreaMaxHeight)
+        return min(estimated, maxBubbleViewportHeight)
     }
 
-    private func estimatedBubbleContentHeight(sessions: [Session]) -> CGFloat {
+    /// 窗口整体高度：气泡块（空时为 0）+ 海豹 + 底部留白。供 PetWindowController
+    /// 动态设置 NSPanel 高度——保持 origin.y 不变，海豹底部位置恒定，顶部不堆空白。
+    static func stageHeight(sessions: [Session]) -> CGFloat {
+        let viewport = bubbleViewportHeight(sessions: sessions)
+        let bubbleBlock = sessions.isEmpty ? 0 : viewport + bubbleToPetGap
+        return bubbleBlock + PetBadgeView.renderedSize + petBottomPadding
+    }
+
+    private static func estimatedBubbleContentHeight(sessions: [Session]) -> CGFloat {
         let bubblesHeight = sessions.reduce(CGFloat(0)) { partial, session in
             partial + estimatedBubbleHeight(session)
         }
@@ -107,7 +118,7 @@ public struct PetStageView: View {
             + PetStageView.contentVerticalPadding * 2
     }
 
-    private func estimatedBubbleHeight(_ session: Session) -> CGFloat {
+    private static func estimatedBubbleHeight(_ session: Session) -> CGFloat {
         switch session.pendingKind {
         case .permission: return PetStageView.permissionBubbleHeight
         case .planApproval: return PetStageView.planApprovalBubbleHeight
@@ -121,11 +132,10 @@ public struct PetStageView: View {
         let sessions = self.sessions
         let ids = sessions.map(\.id)
         let pendingSig = pendingSignature(of: sessions)
-        let viewportHeight = bubbleViewportHeight(sessions: sessions)
+        let viewportHeight = PetStageView.bubbleViewportHeight(sessions: sessions)
+        let stageH = PetStageView.stageHeight(sessions: sessions)
 
         return VStack(spacing: 0) {
-            Spacer(minLength: 0)
-
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: PetStageView.interBubbleSpacing) {
@@ -210,8 +220,10 @@ public struct PetStageView: View {
 
             Spacer().frame(height: PetStageView.petBottomPadding)
         }
-        .frame(width: PetWindow.stageSize.width, height: PetWindow.stageSize.height)
+        .frame(width: PetWindow.stageWidth, height: stageH, alignment: .bottom)
         .onReceive(timer) { now = $0 }
+        .onAppear { onStageHeightChange(stageH) }
+        .onChange(of: stageH) { _, newHeight in onStageHeightChange(newHeight) }
     }
 
     /// 当前列表中"需要被自动聚焦"的 session id —— 即最先出现 pending 大卡片的那条。

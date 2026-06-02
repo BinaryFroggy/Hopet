@@ -3,16 +3,16 @@ import SwiftUI
 
 /// 宿主一只宠物的非激活、跨 Space、置顶 NSPanel。
 public final class PetWindow: NSPanel {
-    /// 宠物舞台容器尺寸。布局：海豹（128px）固定在窗口底部 80px 留白上方，气泡列从海豹头顶
-    /// 自下往上堆 5 条；宽度按最宽气泡卡片（plan-approval = 320）+ 余量；高度按 1 个 plan-approval
-    /// (~400) + 海豹 + padding 估算，能让最常见与最坏情形都不裁切，又不至于把太多空白塞进窗口
-    /// 让用户拖窗口时拖到的全是顶部空气、海豹永远爬不到屏幕上半部分。
+    /// 宠物舞台宽度。海豹（128px）固定贴窗口底部，气泡列从海豹头顶自下往上堆；
+    /// 宽度按最宽气泡卡片（plan-approval = 320）+ 余量。窗口高度不再固定，而是由
+    /// PetStageView 按实际气泡数算出（见 `stageHeight(sessions:)`）并通过
+    /// PetWindowController 动态设到 frame——没气泡时窗口只够容纳海豹，避免顶部堆空白、
+    /// 海豹被钉在窗口底部拖不到屏幕上半部分。
     /// 拖动通过 constrainFrameRect 约束到 screen.visibleFrame 内，不会跑到屏幕外。
-    /// PetStageView / hosting view / Window 必须使用同一组尺寸。
-    public static let stageSize = CGSize(width: 380, height: 620)
+    public static let stageWidth: CGFloat = 380
 
-    public init(contentView: NSView, initialOrigin: CGPoint) {
-        let frame = NSRect(origin: initialOrigin, size: NSSize(width: PetWindow.stageSize.width, height: PetWindow.stageSize.height))
+    public init(contentView: NSView, initialOrigin: CGPoint, initialHeight: CGFloat) {
+        let frame = NSRect(origin: initialOrigin, size: NSSize(width: PetWindow.stageWidth, height: initialHeight))
         super.init(
             contentRect: frame,
             styleMask: [.borderless, .nonactivatingPanel],

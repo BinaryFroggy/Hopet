@@ -73,13 +73,30 @@ public final class PetWindowController {
             },
             onDismiss: { [weak self] sessionId in
                 self?.inputCoordinator.dismissSession(sessionId)
+            },
+            onStageHeightChange: { [weak self] height in
+                self?.applyStageHeight(height)
             }
         )
+        let initialHeight = PetStageView.stageHeight(sessions: registry.activeSessions)
         let hosting = FirstClickHostingView(rootView: stageView)
-        hosting.frame = NSRect(origin: .zero, size: PetWindow.stageSize)
+        hosting.frame = NSRect(origin: .zero, size: NSSize(width: PetWindow.stageWidth, height: initialHeight))
 
-        let win = PetWindow(contentView: hosting, initialOrigin: origin)
+        let win = PetWindow(contentView: hosting, initialOrigin: origin, initialHeight: initialHeight)
         window = win
         return win
+    }
+
+    /// 把 PetStageView 算出的内容高度同步到 NSPanel。海豹钉在窗口底部，故保持
+    /// origin.y 不变、只改 height——窗口顶部随气泡伸缩，海豹屏幕位置恒定。
+    /// setFrame 会经 PetWindow.constrainFrameRect 重新 clamp，气泡撑高顶到 menu bar
+    /// 时窗口被整体下压。
+    private func applyStageHeight(_ height: CGFloat) {
+        guard let win = window else { return }
+        let current = win.frame
+        guard abs(current.height - height) > 0.5 else { return }
+        let newFrame = NSRect(x: current.origin.x, y: current.origin.y,
+                              width: PetWindow.stageWidth, height: height)
+        win.setFrame(newFrame, display: true)
     }
 }
