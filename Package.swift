@@ -14,6 +14,7 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "Hopet",
+            dependencies: ["hopet-emit"],
             path: "Sources/Hopet",
             resources: [
                 .copy("Resources")
