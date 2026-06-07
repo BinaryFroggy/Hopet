@@ -12,7 +12,7 @@
   一只常驻 macOS 桌面的 AI 宠物，用动画和气泡显示
   <a href="https://claude.com/claude-code">Claude Code</a> /
   <a href="https://github.com/openai/codex">Codex CLI</a>
-  正在思考、执行工具、等待确认、请求权限或完成任务，让你不用切回终端也能看懂 agent 进展。
+  正在思考、执行工具、等待确认、请求权限或完成任务，并通过桌面宠物与灵动岛提醒你关注 agent 进展。
 </p>
 
 <p align="center">
@@ -28,7 +28,7 @@
 
 ## 项目介绍
 
-Hopet 是一只常驻 macOS 桌面的 AI 编程宠物，它把 Claude Code / Codex CLI 的会话状态变成可见、可感知的桌面反馈：思考、执行工具、等待确认、请求权限、完成或失败，都能通过宠物动画、气泡提示和状态栏表现出来。
+Hopet 是一只常驻 macOS 桌面的 AI 编程宠物，它把 Claude Code / Codex CLI 的会话状态变成可见、可感知的桌面反馈：思考、执行工具、等待确认、请求权限、完成或失败，都能通过宠物动画、气泡提示和灵动岛 / 顶部状态条表现出来。
 
 它不是另一个聊天窗口，而是一个轻量的工作陪伴层，让开发者在写代码时不用频繁切回终端，也能直观看到 AI agent 当前在做什么、是否需要你介入，以及一次会话是否顺利推进。
 
@@ -71,6 +71,14 @@ Hopet 通过 agent CLI 的生命周期 hook 工作，目前覆盖以下 4 种用
 - **拖拽移动**，位置自动记忆
 - **内嵌交互气泡**——权限请求会原位展开为 Allow / Deny / 交给终端 三选一卡片；AskUserQuestion 会展开为分页答题卡，每个问题提供选项按钮和自由文本兜底
 
+### 灵动岛 / 顶部状态条
+
+- **默认开启的刘海屏 Dynamic Notch**——在 MacBook 刘海区域显示一条状态胶囊，跟随最高优先级 session 展示 `Idle`、`Responding…`、`Thinking…`、`Running tool…`、`Permission needed`、`Waiting for your answer` 等状态文案
+- **展开交互**——默认显示简短状态；点击或遇到权限请求、AskUserQuestion、完成摘要时展开为卡片
+- **权限与提问可直接处理**——展开后可在灵动岛里处理 PermissionRequest、AskUserQuestion 与 plan approval，结果通过 hook socket 同步回传给 agent
+- **无刘海屏降级顶条**——没有物理刘海的 Mac 可选择显示顶部中央状态条；默认关闭，避免遮挡菜单栏
+- **开关位置**——偏好面板 **Overview → Display → Show notch bar** 或 **Behavior → Notch → Show notch bar** 可实时开启 / 关闭；无刘海屏还需要打开 **Behavior → Notch → Show top bar on non-notch displays**
+
 ### 主题系统
 
 - **内置 Hopi 主题**——8 段像素海豹动画随 App 一同打包
@@ -79,17 +87,20 @@ Hopet 通过 agent CLI 的生命周期 hook 工作，目前覆盖以下 4 种用
 
 ### 偏好面板
 
-标准 macOS 偏好窗口，共 7 个 Tab：
+标准 macOS 偏好窗口，共 8 个 Tab：
 
 | Tab | 用途 |
 | --- | --- |
 | Overview | 宠物当前状态快照与活跃 session 列表 |
 | Themes | 内置主题 + 用户主题，导入 / 应用 / 删除 |
 | Appearance | 宠物渲染相关选项 |
+| Bindings | 全局主题绑定 |
 | Hooks | Claude Code / Codex hook 安装状态与诊断 |
-| Behavior | 拖拽吸附、idle 可见性、动画帧率等 |
+| Behavior | 拖拽吸附、灵动岛 / 降级顶条、终端与诊断相关偏好 |
 | Notifications | 各类横幅通知的分类开关 |
 | About | 版本号、构建号、致谢 |
+
+其中灵动岛总开关是 `Show notch bar`：在 **Overview** 的 **Display** 卡片和 **Behavior** 的 **Notch** 卡片里是同一个设置，切换后会立即显示或隐藏。无刘海屏机器若想显示顶部降级条，还需要额外打开 **Show top bar on non-notch displays**。
 
 ## 效果展示
 
