@@ -68,14 +68,15 @@ cp "$BUILT_DIR/Hopet"      "$APP/Contents/MacOS/Hopet"
 cp "$BUILT_DIR/hopet-emit" "$APP/Contents/MacOS/hopet-emit"
 chmod 0755 "$APP/Contents/MacOS/Hopet" "$APP/Contents/MacOS/hopet-emit"
 
-# Resources: SwiftPM bundles them into Hopet_Hopet.bundle next to the binary.
-# Copy the whole bundle into Contents/Resources so Bundle.module resolves at
-# runtime exactly like during `swift run`.
+# Keep the SwiftPM resource bundle inside the signed app resources directory.
+# Runtime loading uses Bundle.main.resourceURL instead of Bundle.module because
+# the generated accessor expects the bundle beside the .app package.
 RESOURCE_BUNDLE_NAME="Hopet_Hopet.bundle"
 if [ -d "$BUILT_DIR/$RESOURCE_BUNDLE_NAME" ]; then
     cp -R "$BUILT_DIR/$RESOURCE_BUNDLE_NAME" "$APP/Contents/Resources/"
 else
-    echo "warning: $RESOURCE_BUNDLE_NAME not found in $BUILT_DIR" >&2
+    echo "error: $RESOURCE_BUNDLE_NAME not found in $BUILT_DIR" >&2
+    exit 1
 fi
 
 cat > "$APP/Contents/Info.plist" <<PLIST

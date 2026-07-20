@@ -38,7 +38,9 @@ public final class MenuBarItem {
     @objc private func quit() { NSApp.terminate(nil) }
 
     private static func loadStatusBarIcon() -> NSImage? {
-        guard let url = Bundle.module.url(forResource: "StatusBarIcon", withExtension: "png"),
+        let iconURL = Bundle.main.resourceURL?
+            .appendingPathComponent("Hopet_Hopet.bundle/Resources/StatusBarIcon.png")
+        guard let url = iconURL,
               let image = NSImage(contentsOf: url)
         else { return nil }
         image.size = NSSize(width: 18, height: 18)

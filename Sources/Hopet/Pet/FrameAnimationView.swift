@@ -50,7 +50,16 @@ private enum FrameImageCache {
 
     static func frames(in directory: String) -> [NSImage] {
         if let cached = cache[directory] { return cached }
-        let urls = (Bundle.module.urls(forResourcesWithExtension: "png", subdirectory: directory) ?? [])
+        let resourceDirectory = Bundle.main.resourceURL?
+            .appendingPathComponent("Hopet_Hopet.bundle", isDirectory: true)
+            .appendingPathComponent(directory, isDirectory: true)
+        let urls = (resourceDirectory.flatMap {
+            try? FileManager.default.contentsOfDirectory(
+                at: $0,
+                includingPropertiesForKeys: nil
+            )
+        } ?? [])
+            .filter { $0.pathExtension == "png" }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
         let images = urls.compactMap { NSImage(contentsOf: $0) }
         cache[directory] = images
