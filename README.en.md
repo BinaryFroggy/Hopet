@@ -22,6 +22,7 @@
   <img src="https://img.shields.io/badge/Swift-5.10-F05138.svg?logo=swift&logoColor=white" alt="Swift 5.10" />
   <img src="https://img.shields.io/badge/macOS-14%2B-000000.svg?logo=apple&logoColor=white" alt="macOS 14+" />
   <img src="https://img.shields.io/badge/Apple%20Silicon%20%7C%20Intel-555555.svg?logo=apple&logoColor=white" alt="Apple Silicon | Intel" />
+  <img src="https://img.shields.io/badge/release-v0.1.2-6f42c1.svg" alt="Release v0.1.2" />
   <img src="https://img.shields.io/badge/SwiftPM-compatible-brightgreen.svg" alt="SwiftPM compatible" />
   <img src="https://img.shields.io/badge/SwiftUI-AppKit-007AFF.svg" alt="SwiftUI + AppKit" />
 </p>
@@ -111,6 +112,24 @@ Aider, etc.).
   Allow / Deny / Defer-to-terminal card; AskUserQuestion expands into a
   per-question answer card with options plus a free-text fallback
 
+### Dynamic Notch / top status bar
+
+- **Dynamic Notch, enabled by default on notched MacBooks** — a compact
+  status capsule follows the highest-priority session and reports states
+  such as `Idle`, `Responding…`, `Thinking…`, `Running tool…`,
+  `Permission needed`, and `Waiting for your answer`
+- **Expandable interaction** — click the capsule, or let a permission
+  request, AskUserQuestion, or completion summary expand it into cards
+- **Resolve requests in place** — permission requests, AskUserQuestion,
+  and plan approvals can be handled from the notch; responses travel back
+  through the hook socket to the agent
+- **Fallback for Macs without a notch** — optionally show the same status
+  bar at the top center of the display; it is off by default to avoid
+  covering the menu bar
+- **Controls** — toggle **Show notch bar** in **Overview → Display** or
+  **Behavior → Notch**. On a non-notched display, also enable **Show top
+  bar on non-notch displays**.
+
 ### Theme system
 
 - **Built-in Hopi theme** — eight pixel-art seal animations bundled in the
@@ -125,17 +144,23 @@ Aider, etc.).
 
 ### Preference panel
 
-A standard macOS preferences window with seven tabs:
+A standard macOS preferences window with eight tabs:
 
 | Tab | Purpose |
 | --- | --- |
 | Overview | Pet status snapshot and active session list |
 | Themes | Built-in + user themes, import / apply / delete |
 | Appearance | Pet rendering options |
+| Bindings | Global theme binding |
 | Hooks | Claude Code / Codex hook install state and doctor |
-| Behavior | Drag snapping, idle visibility, FPS, etc. |
+| Behavior | Drag snapping, notch / fallback top-bar, terminal, and diagnostic preferences |
 | Notifications | Per-category banner toggles |
 | About | Version, build, and credits |
+
+**Show notch bar** is the same shared setting in the **Display** card of
+**Overview** and the **Notch** card of **Behavior**, and takes effect
+immediately. On Macs without a physical notch, enable **Show top bar on
+non-notch displays** as well to show the fallback bar.
 
 ## Showcase
 
@@ -175,10 +200,10 @@ exact animation shipped with the app, in priority order.
 
 ## Install
 
-Requirements: macOS 14+ on Apple Silicon. (Intel builds are not shipped
-in 0.1.0 — build from source if you need one.)
+Requirements: macOS 14+ on Apple Silicon. The v0.1.2 DMG does not ship
+an Intel binary; build from source on an Intel Mac.
 
-1. Download the latest `Hopet-<version>.dmg` from the
+1. Download `Hopet-0.1.2.dmg` from the
    [Releases page](https://github.com/BinaryFroggy/Hopet/releases/latest).
 2. Open the DMG and drag **Hopet** into **Applications**.
 3. The release is **ad-hoc signed** (no Apple Developer ID). On first

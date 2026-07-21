@@ -20,6 +20,7 @@
   <img src="https://img.shields.io/badge/Swift-5.10-F05138.svg?logo=swift&logoColor=white" alt="Swift 5.10" />
   <img src="https://img.shields.io/badge/macOS-14%2B-000000.svg?logo=apple&logoColor=white" alt="macOS 14+" />
   <img src="https://img.shields.io/badge/Apple%20Silicon%20%7C%20Intel-555555.svg?logo=apple&logoColor=white" alt="Apple Silicon | Intel" />
+  <img src="https://img.shields.io/badge/release-v0.1.2-6f42c1.svg" alt="Release v0.1.2" />
   <img src="https://img.shields.io/badge/SwiftPM-compatible-brightgreen.svg" alt="SwiftPM compatible" />
   <img src="https://img.shields.io/badge/SwiftUI-AppKit-007AFF.svg" alt="SwiftUI + AppKit" />
 </p>
@@ -139,9 +140,9 @@ Hopi 主题覆盖全部 8 个 `PetState`，下方每张 GIF 就是 App 内实际
 
 ## 安装
 
-环境要求：macOS 14+，Apple Silicon。（0.1.0 暂不提供 Intel 二进制，需要请从源码自行编译。）
+环境要求：macOS 14+，Apple Silicon。当前发布的 v0.1.2 DMG 暂不提供 Intel 二进制；Intel Mac 可从源码构建。
 
-1. 从 [Releases 页面](https://github.com/BinaryFroggy/Hopet/releases/latest) 下载最新的 `Hopet-<version>.dmg`。
+1. 从 [Releases 页面](https://github.com/BinaryFroggy/Hopet/releases/latest) 下载 `Hopet-0.1.2.dmg`。
 2. 打开 DMG，把 **Hopet** 拖进 **Applications**。
 3. 当前发布版本使用 **ad-hoc 签名**（无 Apple Developer ID），首次打开会被 macOS 拦截，提示「无法打开 Hopet，因为 Apple 无法检查其是否包含恶意软件」。两种绕过方式任选其一：
    - 在 Applications 里**右键** Hopet.app → **打开** → 弹窗里再点一次**打开**；
