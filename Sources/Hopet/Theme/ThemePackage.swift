@@ -53,6 +53,12 @@ public struct ThemePackage: Identifiable, Hashable, Sendable {
 public enum FrameAnimation: Hashable, Sendable {
     case bundlePNG(directory: String, framesPerSecond: Double)
     case gifFile(url: URL)
+    case codexPetSpriteSheet(
+        url: URL,
+        row: CodexPetAnimation,
+        layout: CodexPetSpriteLayout,
+        framesPerSecond: Double
+    )
 }
 
 /// 抽象的 RGB token，避免主题层直接依赖 SwiftUI.Color。

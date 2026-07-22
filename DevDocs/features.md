@@ -366,25 +366,30 @@ flowchart TD
     Start["App 启动"] --> Builtin["DefaultTheme.hopi 硬编码构造"]
     Builtin --> Scan["扫描 ~/.hopet/themes/*/manifest.json"]
     Scan --> Decode{"manifest.json 解码"}
-    Decode -->|成功| Build["按 PetState.rawValue 收集 8 个 GIF<br/>构造 FrameAnimation.gifFile(url:)"]
+    Decode -->|GIF 主题| BuildGIF["按 PetState.rawValue 收集 8 个 GIF<br/>构造 FrameAnimation.gifFile(url:)"]
+    Decode -->|Codex pet| BuildCodex["保留 spritesheet.png / webp<br/>按固定映射构造图集动画"]
     Decode -->|失败| Skip["跳过并 warn"]
-    Build --> Store["ThemeStore 持有列表"]
+    BuildGIF --> Store["ThemeStore 持有列表"]
+    BuildCodex --> Store
     Store --> Active["activeThemeId 取自 HopetConfig，<br/>缺失时降级 hopi.default"]
 ```
 
-GIF 渲染走 `GIFAnimationView`：`ImageIO` 解码所有帧，保留 GIF 内嵌可变帧延迟，`TimelineView` 按 `(elapsed % totalDuration)` 二分定位当前帧；帧图缓存 key = `(URL.path, mtime)`，删除 / 重导入主题后 mtime 变化自动失效。
+GIF 渲染走 `GIFAnimationView`：`ImageIO` 解码所有帧，保留 GIF 内嵌可变帧延迟，`TimelineView` 按 `(elapsed % totalDuration)` 二分定位当前帧；帧图缓存 key = `(URL.path, mtime)`，删除 / 重导入主题后 mtime 变化自动失效。Codex pet 直接解码 v1 的 1536×1872 或当前 v2 的 1536×2288 PNG / WebP 图集，并从前 9 个标准动作行裁帧，不生成 GIF 中间文件。
 
 #### 3.7.2 导入用户主题
 
-详见 [preferences.md §5.3](./preferences.md)。入口：ThemesTab 的 "Import Theme…" 按钮。两种填法：
+详见 [preferences.md §5.3](./preferences.md)。入口：ThemesTab 的 "Import Theme…" 按钮。三种填法：
 
 - **8 槽手填**：为每个 `PetState` 拖入或选择一个 GIF
 - **文件夹 / .zip 自动扫描**：拖入一整个目录或 `.zip`，`UserThemeImporter.DirectoryScan` 按文件名（忽略大小写、忽略 `-` / `_` / 空格）匹配 PetState
+- **Codex pet 包**：选择含 `pet.json` 与 `spritesheet.png` 或 `spritesheet.webp` 的文件夹或 `.zip`；保留原始图集，不转码 GIF
 
 校验：
 1. UTI 必须是 `public.gif`（避免改名 `.gif` 绕过）
 2. `CGImageSourceCreateWithURL` 必须成功且帧数 ≥ 1
 3. 任一校验失败 → 删除半成品目录、报错红字、保留 sheet 供修正
+
+Codex pet 校验：`pet.json.spritesheetPath` 必须为 `spritesheet.png` 或 `spritesheet.webp`；v1 包为 1536×1872（8×9），v2 包以 `spriteVersionNumber: 2` 标识且为 1536×2288（8×11），每格均为 192×208。两代均要求 `id` / `displayName` / `description`；`kind` 仅为旧 v1 的可选字段。导入器逐格检测 alpha，只接受从左至右连续的可见帧；空帧后重新出现内容或 v2 的帧数不符合契约都会拒绝，避免播放空白帧。允许根目录或一层子目录中恰好一个包。
 
 > v0.1 不支持 `.hopettheme` zip 分发（含 zip slip 防护，留 v0.3+）。当前 zip 仅作为"一次性导入容器"用，导入完成立刻解到 `~/.hopet/themes/<id>/` 并丢弃 staging。
 
@@ -398,6 +403,21 @@ GIF 渲染走 `GIFAnimationView`：`ImageIO` 解码所有帧，保留 GIF 内嵌
 **帧规范**：
 - 透明背景 GIF；每个 state 建议 8–24 帧；loop 自然衔接
 - 8 个文件**必须齐全**——缺任一帧整个主题非法
+
+**Codex pet 状态映射**：Hopet 的会话状态比 Codex 图集的动作行更强调“此刻需要什么”。默认映射固定如下，状态色、气泡和权限交互仍由 Hopet 自己渲染：
+
+| Hopet 状态 | Codex 图集行 | 设计理由 |
+| --- | --- | --- |
+| `idle` | `idle` | 无活跃会话 |
+| `thinking` | `review` | 审阅/斟酌的视觉最贴合深度思考 |
+| `responding` | `running` | 正在连续推进主任务 |
+| `tool-use` | `run right` | 工具执行采用明确的前进动作 |
+| `permission-prompt` | `waiting` | 宠物等待用户决定 |
+| `ask-user` | `waving` | 主动招呼用户回答 |
+| `completed` | `jumping` | 完成后的正向反馈 |
+| `error-interrupted` | `failed` | 失败/中断反馈 |
+
+`run left` 是 Codex 的朝向动画，不代表独立会话状态。Hopet 的宠物不随 session 在桌面上移动，所以不映射它。
 
 ---
 

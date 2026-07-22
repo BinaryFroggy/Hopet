@@ -1,7 +1,7 @@
 import Foundation
 
 /// 扫描 `~/.hopet/themes/<id>/manifest.json` 加载用户主题。
-/// 单个主题损坏（manifest 缺失 / 任一 PetState GIF 缺失）时跳过该目录并 warn，不影响其他主题。
+/// 单个主题损坏（manifest 缺失 / 任一 PetState 资源缺失）时跳过该目录并 warn，不影响其他主题。
 /// See preferences.md §5.
 public enum UserThemeStore {
     public static func scan() -> [ThemePackage] {
@@ -39,13 +39,45 @@ public enum UserThemeStore {
             throw UserThemeError.unknownSchemaVersion(manifest.schemaVersion)
         }
 
-        var animations: [PetState: FrameAnimation] = [:]
-        for state in PetState.allCases {
-            let gif = dir.appendingPathComponent("\(state.rawValue).gif")
-            guard FileManager.default.fileExists(atPath: gif.path) else {
-                throw UserThemeError.missingGIF(state)
+        let animations: [PetState: FrameAnimation]
+        let description: String
+        switch manifest.assetFormat ?? .gif {
+        case .gif:
+            var gifAnimations: [PetState: FrameAnimation] = [:]
+            for state in PetState.allCases {
+                let gif = dir.appendingPathComponent("\(state.rawValue).gif")
+                guard FileManager.default.fileExists(atPath: gif.path) else {
+                    throw UserThemeError.missingGIF(state)
+                }
+                gifAnimations[state] = .gifFile(url: gif)
             }
-            animations[state] = .gifFile(url: gif)
+            animations = gifAnimations
+            description = "User theme · imported \(formatted(manifest.createdAt))"
+
+        case .codexPet:
+            guard let codexPet = manifest.codexPet else {
+                throw UserThemeError.missingCodexPetManifest
+            }
+            guard let layout = codexPet.layout else {
+                throw UserThemeError.unsupportedCodexPetVersion(codexPet.spriteVersionNumber)
+            }
+            let spriteSheet = dir.appendingPathComponent(codexPet.spritesheetPath)
+            guard FileManager.default.fileExists(atPath: spriteSheet.path) else {
+                throw UserThemeError.missingCodexSpriteSheet(codexPet.spritesheetPath)
+            }
+            animations = Dictionary(uniqueKeysWithValues: PetState.allCases.map { state in
+                (
+                    state,
+                    .codexPetSpriteSheet(
+                        url: spriteSheet,
+                        row: CodexPetStateMapping.animation(for: state),
+                        layout: layout,
+                        framesPerSecond: 8
+                    )
+                )
+            })
+            let sourceDescription = codexPet.kind ?? "v\(layout.spriteVersionNumber)"
+            description = "Codex pet · \(sourceDescription) · imported \(formatted(manifest.createdAt))"
         }
 
         let pack = ThemePackage(
@@ -53,7 +85,7 @@ public enum UserThemeStore {
             name: manifest.name,
             version: "1",
             author: nil,
-            description: "User theme · imported \(formatted(manifest.createdAt))",
+            description: description,
             glyphs: [:],
             animations: animations,
             isUserProvided: true,
@@ -69,22 +101,50 @@ public enum UserThemeStore {
     }
 }
 
-/// `manifest.json` 的 schema。See preferences.md §5.2.
+/// `manifest.json` 的 schema。可选格式字段保持与已有 GIF 主题的 schemaVersion 1 兼容。
+enum UserThemeAssetFormat: String, Codable {
+    case gif
+    case codexPet = "codex-pet"
+}
+
 struct UserThemeManifest: Codable {
     var schemaVersion: Int = 1
     let id: String
     let name: String
     var createdAt: Date = Date()
+    var assetFormat: UserThemeAssetFormat?
+    var codexPet: CodexPetManifest?
+
+    init(
+        id: String,
+        name: String,
+        createdAt: Date = Date(),
+        assetFormat: UserThemeAssetFormat? = nil,
+        codexPet: CodexPetManifest? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.createdAt = createdAt
+        self.assetFormat = assetFormat
+        self.codexPet = codexPet
+    }
 }
 
 enum UserThemeError: LocalizedError {
     case unknownSchemaVersion(Int)
     case missingGIF(PetState)
+    case missingCodexPetManifest
+    case missingCodexSpriteSheet(String)
+    case unsupportedCodexPetVersion(Int?)
 
     var errorDescription: String? {
         switch self {
         case .unknownSchemaVersion(let v): return "unknown manifest schemaVersion \(v)"
         case .missingGIF(let s):           return "missing GIF for state '\(s.rawValue)'"
+        case .missingCodexPetManifest:     return "missing Codex pet metadata"
+        case .missingCodexSpriteSheet(let path): return "missing Codex pet \(path)"
+        case .unsupportedCodexPetVersion(let version):
+            return "unsupported Codex pet spriteVersionNumber \(version.map(String.init) ?? "missing")"
         }
     }
 }

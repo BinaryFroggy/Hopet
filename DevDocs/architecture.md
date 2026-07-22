@@ -30,7 +30,7 @@
 | AskUserQuestion 气泡结构化答题 | ✅ 走 PermissionRequest hook + `updatedInput.answers` | ✅ |
 | ExitPlanMode 气泡 plan-approval（plan markdown + 继续规划反馈） | ✅ | ✅ |
 | 内置默认 Hopi 主题 | ✅ 8 状态 × 21 或 28 帧 | ✅ |
-| 用户自定义主题导入（8 个 GIF + manifest，文件夹 / `.zip` 自动扫描） | ✅ | ✅ |
+| 用户自定义主题导入（8 个 GIF 或 Codex pet 图集 + manifest，文件夹 / `.zip` 自动扫描） | ✅ | ✅ |
 | `.hopettheme` zip 分发 + zip slip 防护 | ⛔ | ⛔ v0.3+ |
 | 偏好面板（Overview / Themes / Appearance / Bindings / Hooks / Behavior / Notifs / About） | ✅ 8 Tab 全部实现 | ✅ |
 | Hook 安装向导 + Doctor | ✅ | ✅ |
@@ -131,7 +131,7 @@ flowchart TD
 | 层 | 技术 | 理由 |
 | --- | --- | --- |
 | App 入口 / 偏好面板 / 宠物气泡 | **SwiftUI** (macOS 14+) | 声明式、组合式 UI；像素风外观由 `Theme/PixelChrome.swift` / `Theme/PixelControls.swift` 自绘部件统一承载。 |
-| 宠物逐帧渲染 | **SwiftUI `Image` 帧序列 + `TimelineView`** | 内置 Hopi 主题由 `scripts/build-pet-animation.py` 切出 7×N 的 PNG 帧，运行时按 fps 轮播；用户主题用单个 GIF，`GIFAnimationView` 走 `ImageIO`（`CGImageSourceCreateWithURL`）解码，保留 GIF 内嵌可变帧延迟。**不依赖 SpriteKit / SKView**——v0.1 早期评估过 SpriteKit，但帧序列 + 像素风渲染对它的能力包用不上，反而带来 SKScene 生命周期与 NSPanel 透明窗口的 hit-test 复杂度。 |
+| 宠物逐帧渲染 | **SwiftUI `Image` 帧序列 + `TimelineView`** | 内置 Hopi 主题由 `scripts/build-pet-animation.py` 切出 7×N 的 PNG 帧；GIF 用户主题经 `ImageIO` 解码并保留可变帧延迟；Codex pet 直接经 `ImageIO` 解码 v1 1536×1872 或 v2 1536×2288 的 PNG / WebP 图集，只裁切从左至右连续的可见标准帧，避免播放透明尾格。**不依赖 SpriteKit / SKView**——帧序列 + 像素风渲染对它的能力包用不上，反而带来 SKScene 生命周期与 NSPanel 透明窗口的 hit-test 复杂度。 |
 | 刘海条 / 宠物窗口 | **AppKit** (`NSPanel`, `NSWindow`) + SwiftUI 嵌入 | 需要 `.nonactivatingPanel`、自定义 levels、跨 Space 行为，SwiftUI 场景不够。 |
 | IPC | **Network.framework** `NWListener` (Unix path) | 苹果推荐、无第三方依赖、内建 TLS（本场景不需要但可选）。 |
 | 并发 | **Swift Concurrency** + **Combine** 做状态广播 | `SessionRegistry` / `PetAggregator` 等核心组件标 `@MainActor`；UI 订阅用 Combine `PassthroughSubject` / `@Published`。 |
@@ -224,7 +224,7 @@ flowchart LR
 - `PetStageView` (SwiftUI) — 一只宠物 + 紧贴它头顶的会话气泡列（**竖栈 + ScrollView**，详见 §12.4）
 - `PetBadgeView` — 宠物本体的占位徽章 / 动画容器
 - `SessionBubbleView` — 单个会话气泡：默认卡 / Permission 决策卡 / AskUserQuestion 答题卡 / ExitPlanMode 卡 / 普通问询卡
-- `FrameAnimationView` — `FrameAnimation` enum 的 dispatcher：`.bundlePNG` 走 `BundleFrameRenderer`（Bundle 内 PNG 帧序列 + `TimelineView`），`.gifFile` 走 `GIFAnimationView`
+- `FrameAnimationView` — `FrameAnimation` enum 的 dispatcher：`.bundlePNG` 走 `BundleFrameRenderer`（Bundle 内 PNG 帧序列 + `TimelineView`），`.gifFile` 走 `GIFAnimationView`，`.codexPetSpriteSheet` 走 PNG / WebP 图集裁帧渲染器
 - `GIFAnimationView` — `ImageIO` 解码用户主题 GIF，保留可变帧延迟，缓存 key = `(URL.path, mtime)`
 - `InputCoordinator` — 把气泡上的 Allow / Deny / AskUserQuestion 答题序列化成 `PermissionResponse` 写回挂起的 socket
 - `PermissionPrompter` — 旧 fire-and-forget 通知通道的占位（v0.1 起所有 Permission/AskUser 都走同步回包，PermissionPrompter 只剩极少边角分支）
@@ -249,10 +249,10 @@ flowchart LR
 ### 5.6 Theme/（主题）
 
 - `ThemePackage` (struct) — 运行时主题对象（详见 §6.6）
-- `FrameAnimation` (enum) — `.bundlePNG(directory:framesPerSecond:)` / `.gifFile(url:)`
+- `FrameAnimation` (enum) — `.bundlePNG(directory:framesPerSecond:)` / `.gifFile(url:)` / `.codexPetSpriteSheet(url:row:layout:framesPerSecond:)`
 - `DefaultTheme` (caseless enum) — 内置 Hopi 主题的硬编码构造，资源指向 `Sources/Hopet/Resources/Themes/Hopi/seal-<state>/*.png`
 - `ThemeStore` (@MainActor `ObservableObject`) — 主题列表 + active 主题 id；启动时扫描 `~/.hopet/themes/*/manifest.json`
-- `UserThemeImporter` (caseless enum) — 校验 8 个 PetState GIF、复制到 `~/.hopet/themes/<id>/`、写 manifest；支持文件夹 / `.zip` 自动扫描
+- `UserThemeImporter` (caseless enum) — 校验 8 个 PetState GIF 或 Codex pet（`pet.json` + PNG / WebP 图集）、复制到 `~/.hopet/themes/<id>/`、写 manifest；支持文件夹 / `.zip` 自动扫描
 - `UserThemeStore` — 用户主题元数据缓存
 - `PixelChrome` / `PixelControls` — 像素风 SwiftUI 部件库（`PixelChrome`, `PixelRoundedRectangle`, `PixelButtonStyle`, `PixelPalette`, `PixelToggle`, `PixelSegmentedControl`, `PixelTabBar`, `PixelGridBackground`, `PixelCard`, `PixelDropSlot`, `PixelScrollThumb`）。设计规范见 preferences.md §11
 
@@ -441,18 +441,24 @@ public struct ThemePackage: Identifiable, Hashable, Sendable {
 public enum FrameAnimation: Hashable, Sendable {
     case bundlePNG(directory: String, framesPerSecond: Double) // 内置主题：Bundle.module 内 PNG 帧目录
     case gifFile(url: URL)                                     // 用户主题：单个 GIF 文件
+    case codexPetSpriteSheet(
+        url: URL,
+        row: CodexPetAnimation,
+        layout: CodexPetSpriteLayout,
+        framesPerSecond: Double
+    )
 }
 
 public struct ColorToken: Hashable, Sendable { /* RGB */ }
 ```
 
-**用户主题 manifest 仅 4 个字段**（preferences.md §5.2）：
+**用户主题 GIF manifest 默认 4 个字段**（preferences.md §5.2）：
 
 ```json
 { "schemaVersion": 1, "id": "user.<slug>.<uuid8>", "name": "<用户输入>", "createdAt": "2026-05-09T12:34:56Z" }
 ```
 
-8 个 GIF 文件按 `PetState.rawValue` 命名（`idle.gif` / `tool-use.gif` / `permission-prompt.gif` …），任一缺失视为非法。
+GIF 主题的 8 个 GIF 文件按 `PetState.rawValue` 命名（`idle.gif` / `tool-use.gif` / `permission-prompt.gif` …），任一缺失视为非法。Codex pet 主题改为存储一个 `spritesheet.png` 或 `spritesheet.webp`，其源 `pet.json` 的元数据保存在 Hopet manifest 的可选字段；两种格式均沿用 schemaVersion 1，旧 GIF 主题不受影响。
 
 **约定**：
 - 内置 Hopi 主题无 manifest，资源路径硬编码到 `Resources/Themes/Hopi/seal-<state>/*.png`
@@ -828,12 +834,15 @@ Codex VSCode / Cursor 插件主会话不触发 `~/.codex/hooks.json`。Hopet App
 详见 [preferences.md §5.3](./preferences.md)。导入入口支持两条路径：
 
 1. **8 槽手填**：用户在 sheet 上为 8 个 PetState 各拖入 / 选择一个 GIF
-2. **文件夹 / .zip 自动扫描**：用户拖入一个文件夹或 `.zip`，`UserThemeImporter.DirectoryScan` 按文件名（忽略大小写与 `-`/`_`/空格）匹配 `PetState.rawValue`，自动填好 8 槽并报告缺失项 / 重复项 / 不识别的文件
+2. **GIF 文件夹 / .zip 自动扫描**：`UserThemeImporter.DirectoryScan` 按文件名（忽略大小写与 `-`/`_`/空格）匹配 `PetState.rawValue`，自动填好 8 槽并报告缺失项 / 重复项 / 不识别的文件
+3. **Codex pet 文件夹 / .zip**：识别 `pet.json` 与 `spritesheet.png` / `spritesheet.webp`，校验 v1 的 8×9 或当前 v2 的 8×11（均为 192×208 单格）格式和连续可见帧后直接复制原图集；不生成 GIF 中间文件
 
 校验：
 - UTI 必须是 `public.gif`（避免改名 `.gif` 绕过）
 - `CGImageSourceCreateWithURL` 必须成功且帧数 ≥ 1
 - 任一校验失败 → 删除半成品目录回滚
+
+Codex pet 的状态映射在 `CodexPetStateMapping` 固定：`idle→idle`、`thinking→review`、`responding→running`、`tool-use→runRight`、`permission-prompt→waiting`、`ask-user→waving`、`completed→jumping`、`error-interrupted→failed`。`runLeft` 仅表达桌面移动方向，Hopet 不从会话状态推导方向，故不映射。
 
 ### 9.3 内置 Hopi 主题
 

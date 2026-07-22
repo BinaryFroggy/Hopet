@@ -3,16 +3,19 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
-/// 导入用户自定义主题：校验 8 个 PetState GIF 完备性、复制到 `~/.hopet/themes/<id>/`、写 manifest。
+/// 导入用户自定义主题：校验 8 个 PetState GIF 或 Codex pet 图集、复制到 `~/.hopet/themes/<id>/`、写 manifest。
 /// 校验失败整次回滚（删除半成品目录）。See preferences.md §5.3.
 public enum UserThemeImporter {
-    /// 用户填写的主题名 + 8 个 GIF 源 URL。
+    /// 用户填写的主题名，加上 8 个 GIF 源 URL 或已校验的 Codex pet 包。
     public struct DraftTheme {
         public var name: String
         public var gifs: [PetState: URL]
-        public init(name: String, gifs: [PetState: URL]) {
+        public var codexPet: CodexPetPackage?
+
+        public init(name: String, gifs: [PetState: URL] = [:], codexPet: CodexPetPackage? = nil) {
             self.name = name
             self.gifs = gifs
+            self.codexPet = codexPet
         }
     }
 
@@ -21,6 +24,10 @@ public enum UserThemeImporter {
     public static func importTheme(_ draft: DraftTheme) throws -> URL {
         let trimmed = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw ImportError.emptyName }
+
+        if let codexPet = draft.codexPet {
+            return try importCodexPet(codexPet, name: trimmed)
+        }
 
         let missing = PetState.allCases.filter { draft.gifs[$0] == nil }
         guard missing.isEmpty else { throw ImportError.missingStates(missing) }
@@ -66,6 +73,40 @@ public enum UserThemeImporter {
         }
     }
 
+    private static func importCodexPet(_ pet: CodexPetPackage, name: String) throws -> URL {
+        try validateCodexPet(pet)
+
+        let id = makeId(from: name)
+        let dir = HopetPaths.themes.appendingPathComponent(id, isDirectory: true)
+        let fm = FileManager.default
+        do {
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            try fm.copyItem(
+                at: pet.spriteSheetURL,
+                to: dir.appendingPathComponent(pet.manifest.spritesheetPath)
+            )
+            let manifest = UserThemeManifest(
+                id: id,
+                name: name,
+                assetFormat: .codexPet,
+                codexPet: pet.manifest
+            )
+            try writeManifest(manifest, to: dir)
+            return dir
+        } catch {
+            try? fm.removeItem(at: dir)
+            throw error
+        }
+    }
+
+    private static func writeManifest(_ manifest: UserThemeManifest, to directory: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(manifest)
+        try data.write(to: directory.appendingPathComponent("manifest.json"), options: .atomic)
+    }
+
     // MARK: - Directory / Archive scan
 
     /// 扫描文件夹或 .zip 压缩包，按 PetState rawValue 匹配 GIF 文件。
@@ -75,6 +116,8 @@ public enum UserThemeImporter {
         public let suggestedName: String
         public let gifs: [PetState: URL]
         public let missing: [PetState]
+        /// 识别到 Codex pet 时不再填 GIF 槽；导入时直接保留原始 PNG / WebP 图集。
+        public let codexPet: CodexPetPackage?
         /// 被跳过/警告的文件信息，例如不识别的文件名、扩展名不是 .gif、同一状态出现多个候选。
         public let issues: [String]
         /// 仅在 zip 解压时设置：sheet 关闭时由调用方负责清理（取消则尽快清理临时目录）。
@@ -84,6 +127,12 @@ public enum UserThemeImporter {
     public static func scanDirectoryOrArchive(_ url: URL) throws -> DirectoryScan {
         let fm = FileManager.default
         var tempRoot: URL? = nil
+        var scanSucceeded = false
+        defer {
+            if !scanSucceeded, let tempRoot {
+                try? fm.removeItem(at: tempRoot)
+            }
+        }
         let root: URL
 
         let ext = url.pathExtension.lowercased()
@@ -102,6 +151,19 @@ public enum UserThemeImporter {
             root = url
         }
 
+        if let codexPet = try findCodexPet(under: root) {
+            let scan = DirectoryScan(
+                suggestedName: codexPet.manifest.displayName,
+                gifs: [:],
+                missing: [],
+                codexPet: codexPet,
+                issues: ["Recognized Codex pet: \(codexPet.manifest.displayName). Its 9 animation rows will be mapped to Hopet states."],
+                temporaryRoot: tempRoot
+            )
+            scanSucceeded = true
+            return scan
+        }
+
         // 收集 root 下所有 .gif 文件（一层目录 + 直接根层；忽略 __MACOSX、隐藏文件）。
         let candidates = collectGIFFiles(under: root)
         guard !candidates.isEmpty else {
@@ -110,8 +172,6 @@ public enum UserThemeImporter {
 
         var matches: [PetState: URL] = [:]
         var issues: [String] = []
-        var usedURLs = Set<URL>()
-
         // 同一 state 出现多个候选时取第一个，其余记入 issues。
         for url in candidates {
             let normalized = normalize(url.deletingPathExtension().lastPathComponent)
@@ -121,7 +181,6 @@ public enum UserThemeImporter {
             }
             if matches[state] == nil {
                 matches[state] = url
-                usedURLs.insert(url)
             } else {
                 issues.append("Multiple GIFs match '\(state.rawValue)'; using '\(matches[state]!.lastPathComponent)', skipped '\(url.lastPathComponent)'.")
             }
@@ -129,13 +188,99 @@ public enum UserThemeImporter {
 
         let missing = PetState.allCases.filter { matches[$0] == nil }
         let suggestedName = suggestedNameFrom(url: url, isArchive: ext == "zip")
-        return DirectoryScan(
+        let scan = DirectoryScan(
             suggestedName: suggestedName,
             gifs: matches,
             missing: missing,
+            codexPet: nil,
             issues: issues,
             temporaryRoot: tempRoot
         )
+        scanSucceeded = true
+        return scan
+    }
+
+    /// Codex pet 可以直接位于所选根目录，也可以被打包在单层目录中。
+    private static func findCodexPet(under root: URL) throws -> CodexPetPackage? {
+        let fm = FileManager.default
+        var directories = [root]
+        if let entries = try? fm.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            for entry in entries where entry.lastPathComponent != "__MACOSX" {
+                var isDir: ObjCBool = false
+                _ = fm.fileExists(atPath: entry.path, isDirectory: &isDir)
+                if isDir.boolValue { directories.append(entry) }
+            }
+        }
+
+        let packages = try directories.compactMap { directory -> CodexPetPackage? in
+            let manifestURL = directory.appendingPathComponent("pet.json")
+            guard fm.fileExists(atPath: manifestURL.path) else { return nil }
+            let data = try Data(contentsOf: manifestURL)
+            let manifest = try JSONDecoder().decode(CodexPetManifest.self, from: data)
+            guard isSupportedSpriteSheetPath(manifest.spritesheetPath) else {
+                throw ImportError.invalidCodexPet("pet.json must use spritesheet.png or spritesheet.webp.")
+            }
+            let package = CodexPetPackage(
+                directory: directory,
+                spriteSheetURL: directory.appendingPathComponent(manifest.spritesheetPath),
+                manifest: manifest,
+                layout: try layout(for: manifest)
+            )
+            try validateCodexPet(package)
+            return package
+        }
+        if packages.count > 1 { throw ImportError.multipleCodexPets }
+        return packages.first
+    }
+
+    private static func validateCodexPet(_ pet: CodexPetPackage) throws {
+        guard isSupportedSpriteSheetPath(pet.manifest.spritesheetPath),
+              !pet.manifest.id.isEmpty,
+              !pet.manifest.displayName.isEmpty,
+              !pet.manifest.description.isEmpty
+        else {
+            throw ImportError.invalidCodexPet("pet.json is missing required metadata.")
+        }
+        guard CodexPetSpriteLayout.resolve(spriteVersionNumber: pet.manifest.spriteVersionNumber) == pet.layout else {
+            throw ImportError.invalidCodexPet("pet.json has an unsupported spriteVersionNumber.")
+        }
+        let expectedImageType: String
+        switch pet.spriteSheetURL.pathExtension.lowercased() {
+        case "png": expectedImageType = "public.png"
+        case "webp": expectedImageType = "org.webmproject.webp"
+        default:
+            throw ImportError.invalidCodexPet("spritesheet must be PNG or WebP.")
+        }
+        guard let source = CGImageSourceCreateWithURL(pet.spriteSheetURL as CFURL, nil),
+              CGImageSourceGetType(source) as String? == expectedImageType,
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+              image.width == pet.layout.spriteSheetWidth,
+              image.height == pet.layout.spriteSheetHeight
+        else {
+            throw ImportError.invalidCodexPet(
+                "spritesheet must be a readable \(pet.layout.spriteSheetWidth)×\(pet.layout.spriteSheetHeight) \(pet.spriteSheetURL.pathExtension.uppercased()) image for spriteVersionNumber \(pet.layout.spriteVersionNumber)."
+            )
+        }
+        do {
+            try CodexPetSpriteSheetCache.validateStandardAnimations(at: pet.spriteSheetURL, layout: pet.layout)
+        } catch {
+            throw ImportError.invalidCodexPet(error.localizedDescription)
+        }
+    }
+
+    private static func layout(for manifest: CodexPetManifest) throws -> CodexPetSpriteLayout {
+        guard let layout = manifest.layout else {
+            throw ImportError.invalidCodexPet("unsupported spriteVersionNumber '\(manifest.spriteVersionNumber.map(String.init) ?? "missing")'.")
+        }
+        return layout
+    }
+
+    private static func isSupportedSpriteSheetPath(_ path: String) -> Bool {
+        path == "spritesheet.png" || path == "spritesheet.webp"
     }
 
     /// 一层扁平扫描 + 至多一级子目录。压缩包里常有 `themepack/idle.gif` 嵌套，
@@ -247,6 +392,8 @@ public enum ImportError: LocalizedError {
     case invalidGIF(PetState, String)
     case notADirectoryOrZip
     case noGIFsInSource
+    case invalidCodexPet(String)
+    case multipleCodexPets
     case unzipFailed(String)
 
     public var errorDescription: String? {
@@ -260,7 +407,11 @@ public enum ImportError: LocalizedError {
         case .notADirectoryOrZip:
             return "Selected item is not a folder or a .zip archive."
         case .noGIFsInSource:
-            return "No .gif files found at the top level of the folder or archive."
+            return "No Hopet GIF theme or Codex pet package was found in the folder or archive."
+        case .invalidCodexPet(let reason):
+            return "Invalid Codex pet: \(reason)"
+        case .multipleCodexPets:
+            return "More than one Codex pet package was found. Select a folder or archive with exactly one pet."
         case .unzipFailed(let reason):
             return "Failed to unzip archive: \(reason)"
         }

@@ -44,7 +44,7 @@ struct ThemesTab: View {
                 )
             }
 
-            Text("Custom themes live in ~/.hopet/themes/. Each must provide 8 GIFs (one per pet state).")
+            Text("Import 8 GIFs or a Codex pet package (pet.json + spritesheet.png/webp).")
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(.secondary)
         }
@@ -175,6 +175,7 @@ private struct ThemeImportSheet: View {
 
     @State private var name: String = ""
     @State private var gifs: [PetState: URL] = [:]
+    @State private var codexPet: CodexPetPackage?
     @State private var errorMessage: String?
     /// 文件夹/压缩包扫描留下的提示与告警（成功也可能伴随警告，例如同 state 多个候选）。
     @State private var scanIssues: [String] = []
@@ -207,24 +208,28 @@ private struct ThemeImportSheet: View {
                     Label("Choose Folder / Zip…", systemImage: "folder")
                 }
                 .buttonStyle(PixelButtonStyle(tint: PixelPalette.sky, prominent: false))
-                Text("Auto-fills slots from a folder of GIFs or a .zip archive.")
+                Text("Detects a GIF theme or Codex pet package in a folder or .zip.")
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(.secondary)
                 Spacer()
             }
 
-            ScrollView {
-                LazyVGrid(
-                    columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
-                    spacing: 10
-                ) {
-                    ForEach(PetState.allCases, id: \.self) { state in
-                        PixelDropSlot(state: state, gifURL: $gifs[state])
+            if let codexPet {
+                CodexPetImportSummary(pet: codexPet)
+            } else {
+                ScrollView {
+                    LazyVGrid(
+                        columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
+                        spacing: 10
+                    ) {
+                        ForEach(PetState.allCases, id: \.self) { state in
+                            PixelDropSlot(state: state, gifURL: $gifs[state])
+                        }
                     }
+                    .padding(.vertical, 4)
                 }
-                .padding(.vertical, 4)
+                .frame(maxHeight: 260)
             }
-            .frame(maxHeight: 260)
 
             statusFooter
 
@@ -253,7 +258,7 @@ private struct ThemeImportSheet: View {
     }
 
     private var canImport: Bool {
-        !name.trimmingCharacters(in: .whitespaces).isEmpty && missingStates.isEmpty
+        !name.trimmingCharacters(in: .whitespaces).isEmpty && (codexPet != nil || missingStates.isEmpty)
     }
 
     @ViewBuilder
@@ -297,7 +302,7 @@ private struct ThemeImportSheet: View {
                 .frame(maxHeight: 70)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-        } else if !missingStates.isEmpty {
+        } else if codexPet == nil, !missingStates.isEmpty {
             Text("Missing: \(missingStates.map(\.rawValue).joined(separator: ", "))")
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(.secondary)
@@ -307,7 +312,7 @@ private struct ThemeImportSheet: View {
 
     private func runImport() {
         do {
-            try onImport(UserThemeImporter.DraftTheme(name: name, gifs: gifs))
+            try onImport(UserThemeImporter.DraftTheme(name: name, gifs: gifs, codexPet: codexPet))
             cleanupTemporary()
             dismiss()
         } catch {
@@ -328,22 +333,28 @@ private struct ThemeImportSheet: View {
     }
 
     private func applyScan(url: URL) {
-        // 重新扫描前清理上一次留下的临时目录。
+        // 重新扫描前清理并清空上一次来源，避免失败后 Import 指向已删除的 zip staging 或旧文件夹。
         cleanupTemporary()
+        codexPet = nil
+        gifs = [:]
         errorMessage = nil
         scanIssues = []
         do {
             let scan = try UserThemeImporter.scanDirectoryOrArchive(url)
-            // 把找到的槽位填进 gifs；保留用户原先手动选过的（避免覆盖意图）。
-            for (state, src) in scan.gifs {
-                if gifs[state] == nil { gifs[state] = src }
+            if let codexPet = scan.codexPet {
+                self.codexPet = codexPet
+            } else {
+                // 当前扫描结果成为唯一来源，不保留已清理 staging 中的旧 GIF URL。
+                for (state, src) in scan.gifs {
+                    gifs[state] = src
+                }
             }
             scanIssues = scan.issues
             temporaryRoot = scan.temporaryRoot
             if name.trimmingCharacters(in: .whitespaces).isEmpty {
                 name = scan.suggestedName
             }
-            if !scan.missing.isEmpty {
+            if scan.codexPet == nil, !scan.missing.isEmpty {
                 // 不是 fatal——missing 在 footer 已有专门提示位，但仍把当前文件夹缺哪几个写进 issues。
                 scanIssues.insert(
                     "Folder/archive is missing: \(scan.missing.map(\.rawValue).joined(separator: ", "))",
@@ -370,7 +381,7 @@ private struct ThemeImportHelpContent: View {
             Text("Theme package requirements")
                 .font(.system(size: 12, weight: .bold, design: .monospaced))
 
-            Text("Each theme needs 8 GIFs, one per pet state:")
+            Text("Choose either a Hopet GIF theme or a Codex pet package.")
                 .font(.system(size: 11, design: .monospaced))
 
             VStack(alignment: .leading, spacing: 2) {
@@ -387,9 +398,18 @@ private struct ThemeImportHelpContent: View {
 
             Divider()
 
+            Text("Codex pet import")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            Text("A package must contain pet.json and spritesheet.png or spritesheet.webp. Hopet accepts v1 (1536×1872, 8×9) and current v2 (1536×2288, 8×11) sheets, then maps their standard rows to session states automatically.")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
             Text("Folder import")
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
-            Text("Pick a folder or a .zip that contains the GIFs at the top level (one level of nesting is also accepted). __MACOSX and hidden files are ignored.")
+            Text("Pick a folder or a .zip that contains a GIF theme or Codex pet. One level of nesting is accepted; __MACOSX and hidden files are ignored.")
                 .font(.system(size: 10, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -410,6 +430,30 @@ private struct ThemeImportHelpContent: View {
         }
         .padding(14)
         .frame(width: 360, alignment: .leading)
+    }
+}
+
+/// 导入 Codex pet 后替代 8 个 GIF 槽，明确显示将保留其原始图集。
+private struct CodexPetImportSummary: View {
+    let pet: CodexPetPackage
+
+    var body: some View {
+        PixelCard("CODEX PET DETECTED", titleTint: PixelPalette.mint) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(pet.manifest.displayName)
+                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                Text(pet.manifest.description)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("pet.json + \(pet.layout.spriteSheetWidth)×\(pet.layout.spriteSheetHeight) \(pet.manifest.spritesheetPath) · 8×\(pet.layout.rows) frames · v\(pet.layout.spriteVersionNumber)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                Text("Mapped: idle / review / running / run-right / waiting / waving / jumping / failed")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 }
 
