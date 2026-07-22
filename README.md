@@ -35,7 +35,7 @@ Hopet 是一只常驻 macOS 桌面的 AI 编程宠物，它把 Claude Code / Cod
 
 Hopet 让本来隐藏在命令行里的 agent 生命周期变得更清楚、更亲近，也让长时间的 AI 协作多了一点秩序和温度。
 
-发布版默认使用内置的 **Hopi 主题**——一只可爱的像素风小海豹，每个状态对应一段动画；如果你想换一只自己的宠物，只要给你的宠物准备一个名字和8张GIF图片拖进去即可。
+发布版默认使用内置的 **Hopi 主题**——一只可爱的像素风小海豹，每个状态对应一段动画；如果你想换一只自己的宠物，可以准备一个名字和 8 张 GIF 图片，也可以直接导入 Codex pet 的文件夹或 ZIP 包。
 
 ## 支持的 AI 工具
 
@@ -83,7 +83,9 @@ Hopet 通过 agent CLI 的生命周期 hook 工作，目前覆盖以下 4 种用
 ### 主题系统
 
 - **内置 Hopi 主题**——8 段像素海豹动画随 App 一同打包
-- **自定义主题**——填一个名字 + 准备 8 张 GIF（每个 `PetState` 一张）即可导入；导入流程会通过 UTI 和帧数校验图片，复制到 `~/.hopet/themes/<id>/` 并写入 `manifest.json`，任何一步失败都会整次回滚，目录里绝不会出现半成品
+- **GIF 主题导入**——填一个名字并准备 8 张 GIF（每个 `PetState` 一张）即可导入；导入时会校验文件格式和动画帧
+- **Codex pet 直接导入**——选择 Codex pet 的文件夹 / ZIP 包，包内包含 `pet.json` 与 `spritesheet.png` 或 `spritesheet.webp` 即可。支持 v1（8×9）与当前 v2（8×11）图集，导入时会校验格式、尺寸与动画帧，并自动映射到 Hopet 状态
+- **安全安装**——两种导入方式都会将主题复制到 `~/.hopet/themes/<id>/` 并写入 `manifest.json`；任何一步失败都会整次回滚，目录里绝不会出现半成品
 - **从偏好面板直接 Apply / Delete**——用户主题和内置 Hopi 并存，App 升级后仍然保留
 
 ### 偏好面板
@@ -152,7 +154,7 @@ Hopi 主题覆盖全部 8 个 `PetState`，下方每张 GIF 就是 App 内实际
 
 偏好面板的 **Hooks** Tab 用来查看安装状态、跑诊断 Doctor、以及给每个工具单独做 listener 软静音（不动 hook 文件，仅在 EventRouter 入口丢事件）。
 
-想换一只自己的宠物，进 **Themes** Tab，点 _Import Theme…_，填一个名字，准备好对应的动画 GIF 图即可，支持单张 / 文件夹 / 压缩包上传方式，主题会落在 `~/.hopet/themes/<id>/`，与内置 Hopi 并列。
+想换一只自己的宠物，进 **Themes** Tab，点 _Import Theme…_。你可以填一个名字并准备好对应的 8 张动画 GIF，也可以直接选择 Codex pet 格式的文件夹或 ZIP 包（内含 `pet.json` 与 `spritesheet.png` / `spritesheet.webp`）；主题会落在 `~/.hopet/themes/<id>/`，与内置 Hopi 并列。
 
 ## 从源码构建
 

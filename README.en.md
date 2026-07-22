@@ -47,8 +47,8 @@ clearer, and a little friendlier — adding a touch of order, and warmth,
 to the long hours you spend pairing with an AI.
 
 The release ships with the built-in **Hopi** theme: a hand-drawn pixel
-seal with one animation per state. Prefer a different pet? Bring your own
-with a name and eight GIFs.
+seal with one animation per state. Prefer a different pet? Import one with
+a name and eight GIFs, or import a Codex pet folder or ZIP archive directly.
 
 ## Supported AI tools
 
@@ -134,11 +134,15 @@ Aider, etc.).
 
 - **Built-in Hopi theme** — eight pixel-art seal animations bundled in the
   app
-- **Custom themes** — drop in your own pet by importing a name and eight
-  GIFs (one per `PetState`); imports are validated by UTI and frame count,
-  copied to `~/.hopet/themes/<id>/` with a `manifest.json`, and any failed
-  import rolls back so the directory never contains a half-installed
-  theme
+- **GIF theme import** — give the theme a name and provide eight GIFs (one
+  per `PetState`); file format and animation frames are validated on import
+- **Direct Codex pet import** — select a Codex pet folder / ZIP archive
+  containing `pet.json` and `spritesheet.png` or `spritesheet.webp`. Both
+  v1 (8×9) and current v2 (8×11) sheets are supported; format, dimensions,
+  and animation frames are validated and mapped to Hopet states
+- **Safe installation** — both import paths copy the result to
+  `~/.hopet/themes/<id>/` with a `manifest.json`. Failed imports roll back
+  completely, so no half-installed theme remains.
 - **Apply / delete from the preferences panel**; user themes coexist with
   the built-in Hopi theme and survive app upgrades
 
@@ -224,10 +228,11 @@ The **Hooks** tab in Preferences shows install status, runs the
 diagnostic Doctor, and offers per-tool listener toggles for soft-muting
 events without touching the hook files.
 
-Want a custom pet? Open the **Themes** tab, click _Import Theme…_, give
-it a name, and supply the matching animation GIFs. Single files, a
-folder, or a zip archive are all accepted. The imported theme lands in
-`~/.hopet/themes/<id>/` and is selectable alongside Hopi.
+Want a custom pet? Open the **Themes** tab and click _Import Theme…_. Give
+it a name and supply eight matching animation GIFs, or select a Codex pet
+folder or ZIP archive containing `pet.json` plus `spritesheet.png` or
+`spritesheet.webp`. The imported theme lands in `~/.hopet/themes/<id>/`
+and is selectable alongside Hopi.
 
 ## Build from source
 
