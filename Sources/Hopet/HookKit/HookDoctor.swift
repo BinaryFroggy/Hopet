@@ -20,9 +20,10 @@ public enum HookDoctor {
         let emitExists = FileManager.default.fileExists(atPath: HopetPaths.emitBinary.path)
         lines.append("\(emitExists ? "✓" : "✗") hopet-emit: \(HopetPaths.emitBinary.path)")
 
-        // Tools
-        lines.append("Claude hooks installed: \(installer.isInstalled(.claudeCode) ? "yes" : "no")")
-        lines.append("Codex hooks installed:  \(installer.isInstalled(.codex)      ? "yes" : "no")")
+        // Tools —— 遍历 recognized，新增工具自动覆盖，避免漏登记。
+        for tool in AITool.recognized {
+            lines.append("\(tool.displayName) hooks installed: \(installer.isInstalled(tool) ? "yes" : "no")")
+        }
 
         return lines.joined(separator: "\n")
     }

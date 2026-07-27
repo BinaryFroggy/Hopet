@@ -34,6 +34,7 @@
 | 状态感知动画（Claude Code，idle / responding / thinking / tool-use / permission-prompt / ask-user / completed） | ✅ 含 ask-user（通过 AskUserQuestion tool 路由） | ✅ | ✅ |
 | 状态感知动画（Codex CLI 0.129+，无 ask-user 和 error-interrupted） | ✅ 6 hook 完整生命周期（`~/.codex/hooks.json`） | ✅ | ✅ |
 | 状态感知动画（Codex VSCode / Cursor 插件） | ✅ 只读本地 rollout，会话 / 回复 / 工具 / 完成状态；不接管插件权限审批 | ✅ | ✅ |
+| 状态感知动画（其他兼容平台，字段级对齐 Claude Code 的全生命周期 hook） | ⛔ | ⛔ | ✅ 含可决策权限审批 + 交互式 ask-user（`Elicitation` → `permission_ask`） |
 | `error-interrupted` 状态有事件源 | ⛔ 枚举值保留，但 `PostToolUseFailure` 太常态已停用；见 [hooks-and-priority.md §1.1 注 2](./hooks-and-priority.md#11-实际订阅的-claude-code-hook) | 视未来真"会话级错误"事件出现而定 | TBD |
 | 刘海屏 Dynamic Notch | ✅ 三态：collapsed / expanded / fullBubble | ✅ | ✅ |
 | 顶部悬浮条降级（无刘海机型，`notch.fallbackBarEnabled`） | ✅ | ✅ | ✅ |

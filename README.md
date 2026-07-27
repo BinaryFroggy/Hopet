@@ -28,7 +28,7 @@
 
 ## 项目介绍
 
-Hopet 是一只常驻 macOS 桌面的 AI 编程宠物，它把 Claude Code / Codex CLI 的会话状态变成可见、可感知的桌面反馈：思考、执行工具、等待确认、请求权限、完成或失败，都能通过宠物动画、气泡提示和状态栏表现出来。
+Hopet 是一只常驻 macOS 桌面的 AI 编程宠物，它把 Claude Code / Codex CLI 等 AI agent 的会话状态变成可见、可感知的桌面反馈：思考、执行工具、等待确认、请求权限、完成或失败，都能通过宠物动画、气泡提示和状态栏表现出来。
 
 它不是另一个聊天窗口，而是一个轻量的工作陪伴层，让开发者在写代码时不用频繁切回终端，也能直观看到 AI agent 当前在做什么、是否需要你介入，以及一次会话是否顺利推进。
 
@@ -38,16 +38,17 @@ Hopet 让本来隐藏在命令行里的 agent 生命周期变得更清楚、更�
 
 ## 支持的 AI 工具
 
-Hopet 通过 agent CLI 的生命周期 hook 工作，目前覆盖以下 4 种用法：
+Hopet 通过 agent 的生命周期 hook 工作，目前覆盖以下 5 种用法：
 
 - **Claude Code**——在任意终端里跑 `claude` CLI
 - **Claude Code for VS Code**——官方 VS Code 扩展
 - **Codex CLI**——在任意终端里跑 `codex` CLI
 - **Codex VS Code Extension**——官方 VS Code 扩展
+- **其他兼容平台**——自带字段级对齐 Claude Code 协议 hooks 系统的本地 AI agent
 
-由于一切都走 `~/.claude/settings.json` 和 `~/.codex/hooks.json` 这两份 hook，所以宿主不影响行为：Apple Terminal、iTerm2、Ghostty、Warp、VS Code / Cursor 的内嵌终端等任一环境表现一致。
+由于一切都走 `~/.claude/settings.json`、`~/.codex/hooks.json` 等 hook 配置，所以宿主不影响行为：Apple Terminal、iTerm2、Ghostty、Warp、VS Code / Cursor 的内嵌终端等任一环境表现一致。
 
-不支持：浏览器版 Claude（claude.ai）；以及非 Claude Code / Codex 的 AI agent（GitHub Copilot Chat、Gemini CLI、Aider 等）。
+不支持：浏览器版 Claude（claude.ai）；以及不提供上述生命周期 hook 的 AI agent（GitHub Copilot Chat、Gemini CLI、Aider 等）。
 
 ## 功能
 
@@ -59,7 +60,7 @@ Hopet 通过 agent CLI 的生命周期 hook 工作，目前覆盖以下 4 种用
 
 ### Hook 集成
 
-- **一键安装 / 卸载** Claude Code 与 Codex CLI 的 hook settings，采用安全的 JSON merge，绝不覆盖你已有的 hook
+- **一键安装 / 卸载** Claude Code、Codex CLI 与其他兼容平台的 hook settings，采用安全的 JSON merge，绝不覆盖你已有的 hook
 - **Unix Domain Socket IPC**，所有从 CLI helper 进入 App 的事件都走长度前缀 JSON 帧
 - **`hopet-emit` CLI 工具**，完整支持 `--require` / `--exclude` / 点号嵌套字段路径——安装到 `~/.hopet/bin/`，由注册好的 hook 直接调用
 - **同步回包通道**——`PermissionRequest` 和 `AskUserQuestion` 的答案沿着同一条挂起的 hook socket 回传给 agent，因此 Allow/Deny 和结构化答题在 iTerm、Apple Terminal、VS Code、Cursor、Ghostty、Warp 等所有终端宿主里行为一致

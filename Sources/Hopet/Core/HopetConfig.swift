@@ -33,10 +33,22 @@ public struct HopetConfig: Codable, Equatable, Sendable {
     public struct Listeners: Codable, Equatable, Sendable {
         public var claudeCode: Bool
         public var codex: Bool
+        public var hopeAgent: Bool
 
-        public init(claudeCode: Bool = true, codex: Bool = true) {
+        public init(claudeCode: Bool = true, codex: Bool = true, hopeAgent: Bool = true) {
             self.claudeCode = claudeCode
             self.codex = codex
+            self.hopeAgent = hopeAgent
+        }
+
+        /// 自定义解码：`hopeAgent` 是后加字段，旧 `~/.hopet/config.json` 没有它。
+        /// 用 `decodeIfPresent` 兜底为开启，避免旧配置整体解码失败被降级回默认值
+        /// （那会连带丢掉用户已设的 claudeCode / codex 静音）。
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            self.claudeCode = try c.decodeIfPresent(Bool.self, forKey: .claudeCode) ?? true
+            self.codex = try c.decodeIfPresent(Bool.self, forKey: .codex) ?? true
+            self.hopeAgent = try c.decodeIfPresent(Bool.self, forKey: .hopeAgent) ?? true
         }
 
         /// `.custom` 默认视为开启：与 EventRouter 兜底一致——v0.1 不识别的工具
@@ -46,6 +58,7 @@ public struct HopetConfig: Codable, Equatable, Sendable {
                 switch tool {
                 case .claudeCode: return claudeCode
                 case .codex:      return codex
+                case .hopeAgent:  return hopeAgent
                 case .custom:     return true
                 }
             }
@@ -53,6 +66,7 @@ public struct HopetConfig: Codable, Equatable, Sendable {
                 switch tool {
                 case .claudeCode: claudeCode = newValue
                 case .codex:      codex = newValue
+                case .hopeAgent:  hopeAgent = newValue
                 case .custom:     break
                 }
             }

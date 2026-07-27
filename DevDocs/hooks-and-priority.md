@@ -116,6 +116,20 @@ turn_aborted → stop（assistant_message = "Turn aborted"）
 
 这条路径不是同步 hook：插件内的权限审批仍由 Codex VSCode / Cursor 自己处理，Hopet 不展示可交互审批卡，也不回写 Allow / Deny / Handoff 决策；`permission_ask` 继续只来自 Codex CLI hook。rollout 里即使能看到 `exec_command` 的 `sandbox_permissions = "require_escalated"`，Hopet 也只把它视为普通 `tool-use`。
 
+### 1.4 其他兼容平台实际订阅的 hook
+
+这里指自带一套**字段级对齐 Claude Code 协议**的 hooks 系统的本地 AI agent（`command` 类型把 hook input JSON 喂 stdin、同名 PascalCase 事件、`tool_input.command` 对齐），hook 写在该平台自己的配置文件（`~/.hope-agent/config.json`）的 `.hooks` 字段里。因此 hopet-emit 把它当“另一个 Claude Code”即可，无需任何平台专属解析。
+
+| 平台事件 | hopet-emit | 说明 |
+| --- | --- | --- |
+| `SessionStart` / `SessionEnd` / `UserPromptSubmit` / `PreToolUse` / `PostToolUse` / `Stop` | 同名 → `session_start` / … | 与 Claude 模板一致 |
+| `PostToolUseFailure` / `StopFailure` | → `error` | 同 Claude |
+| `PermissionRequest` | → `permission_ask` | **决策型**：该平台让此事件可决策，气泡 Allow / Deny 经 Claude 回包格式（`hookSpecificOutput.decision.behavior`）注入审批，与其 GUI / IM 审批源幂等竞争（第一个决策生效）。payload 带 Claude 形状 `tool_name` + `tool_input`，气泡照常渲染审批卡 |
+| `Elicitation` | → `permission_ask` | ask-user：问题以 Claude AskUserQuestion 形状（`tool_name == "AskUserQuestion"` + `tool_input.questions`）同步发出，Hopet 据 `tool_name` 归一为 askUser、复用同一张答题卡，经 `updatedInput.answers` 同步回包 |
+| `ElicitationResult` | → `ask_user_resolved` | 在别处（该平台自己的 GUI / IM）作答时清掉气泡待答卡 |
+
+子 agent 识别：该平台的子 agent 工具事件带 `parent_session_id`（字段级对齐 Claude Code 的子 agent payload），hopet-emit 的统一判据（`parent_session_id` / `subagent_id` / `subagent_type`）直接识别并丢弃，无需平台专属分支。无 timeout：该平台把 `permission_ask` 这类阻塞 hook 的截止时间钳到自己的审批超时（`approval_timeout_secs`），与 GUI 弹窗同寿命。
+
 ---
 
 ## 2. PetState 优先级

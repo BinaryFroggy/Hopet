@@ -64,7 +64,7 @@ let args = parseArgs(CommandLine.arguments)
 
 if args.help {
     let text = """
-    Usage: hopet-emit --tool <claude-code|codex|custom> --event <kind>
+    Usage: hopet-emit --tool <claude-code|codex|hope-agent|custom> --event <kind>
                        [--require <field>=<value>] [--exclude <field>=<value>]
                        [--session-id <id>]
                        < hook_payload.json
@@ -536,9 +536,17 @@ let tty = ttyOfFd(STDERR_FILENO)
 let needsResponse = (eventRaw == "permission_ask")
 let requestId: String? = needsResponse ? UUID().uuidString : nil
 
-// 子 agent 识别：任一识别字段有值就标记为 subagent，让 Hopet 侧丢弃。
+// 子 agent 识别：任一**显式子上下文字段**有值就标记为 subagent，让 Hopet 侧丢弃。
 // 注：transcript_path 主线 agent 也会有，不能单独作判据。
-let subagentSignals = ["parent_session_id", "agent_id", "subagent_id", "subagent_type", "agent_type"]
+//
+// 只认与 agent 身份无关的字段（`parent_session_id` / `subagent_id` / `subagent_type`），
+// 不认 `agent_id` / `agent_type`：后两者是「当前 agent 是谁」而非「这是个子 agent」——
+//   - hope-agent 主对话常态带 `agent_id`（如 "ha-main"），据此判会把主线工具事件误丢、
+//     宠物永远不动；
+//   - Claude Code 各版本也未稳定暴露 agent_id，本就不可靠。
+// 子 agent 一律带 `parent_session_id`（hope-agent 对齐 CC 后保证；Claude Code 的 Task
+// 子上下文同样带），用它统一识别，无需任何工具专属分支。
+let subagentSignals: [String] = ["parent_session_id", "subagent_id", "subagent_type"]
 let isSubagent = subagentSignals.contains { key in
     if let v = stringify(value(at: key, in: hookJson)), !v.isEmpty { return true }
     return false

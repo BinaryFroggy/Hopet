@@ -78,6 +78,73 @@ enum HookScriptTemplates {
         ]
     }
 
+    /// Hopet 注入到 `~/.hope-agent/config.json` 的 `hooks` 字段里的全部条目。
+    ///
+    /// Hope Agent 是 Tauri 桌面 / 守护进程形态的本地 AI 助手，自带一套**字段级对齐
+    /// Claude Code 协议**的 hooks 系统（`command` 类型把 hook input JSON 喂 stdin、
+    /// 同名 PascalCase 事件、`tool_input.command` 对齐），所以这里的注册结构与 Claude
+    /// 完全同构，hopet-emit 不需任何 hope-agent 专属解析。
+    ///
+    /// ask-user 与 Claude 殊途同归：hope-agent 用自己的 `Elicitation` / `ElicitationResult`
+    /// 事件（而非 Claude 的 `PreToolUse + tool_name=AskUserQuestion` 分流——hope-agent 的
+    /// `tool_name` 是内部名 `exec`，那套 filter 命中不了），但 `Elicitation` 映射到
+    /// `permission_ask` 且把问题以 **Claude AskUserQuestion 形状**同步发出，故 Hopet 复用同一
+    /// 张答题卡、经 `updatedInput.answers` 同步回包，气泡里直接作答、体验与 Claude 完全一致。
+    ///
+    /// `PermissionRequest` 与 Claude 完全同构：hope-agent 已让该事件可决策——hook 返回的
+    /// `hookSpecificOutput.decision.behavior`（allow/deny）经 `submit_approval_response`
+    /// 注入审批，与 GUI / IM 幂等竞争（第一个决策生效）。所以宠物气泡的 Allow / Deny 真正
+    /// 控制 hope-agent，permission_ask 的同步回包链是通的。无需设 timeout：hope-agent 把该
+    /// hook 的截止时间钳到自己的 `approval_timeout_secs`（审批超时），与 GUI 弹窗同寿命。
+    static func hopeAgentHooks(emitPath: String) -> [String: [[String: Any]]] {
+        func entry(_ command: String) -> [String: Any] {
+            ["hooks": [["type": "command", "command": command]]]
+        }
+        return [
+            "SessionStart": [
+                entry("\(emitPath) --tool hope-agent --event session_start")
+            ],
+            "SessionEnd": [
+                entry("\(emitPath) --tool hope-agent --event session_end")
+            ],
+            "UserPromptSubmit": [
+                entry("\(emitPath) --tool hope-agent --event user_prompt")
+            ],
+            "PreToolUse": [
+                entry("\(emitPath) --tool hope-agent --event pre_tool_use")
+            ],
+            "PostToolUse": [
+                entry("\(emitPath) --tool hope-agent --event post_tool_use")
+            ],
+            "PostToolUseFailure": [
+                entry("\(emitPath) --tool hope-agent --event error")
+            ],
+            // 权限请求只走 PermissionRequest（与 Claude 同构）；hope-agent 让该事件可决策，
+            // 气泡 Allow/Deny 经 hopet-emit 的 Claude 回包格式注入审批。不要在别处重复发
+            // permission_ask，否则一个权限事件会触发两次 popup。
+            "PermissionRequest": [
+                entry("\(emitPath) --tool hope-agent --event permission_ask")
+            ],
+            "Stop": [
+                entry("\(emitPath) --tool hope-agent --event stop")
+            ],
+            "StopFailure": [
+                entry("\(emitPath) --tool hope-agent --event error")
+            ],
+            // ask-user 走 Elicitation，但映射到 permission_ask：hope-agent 把问题以 Claude
+            // AskUserQuestion 形状（tool_name=AskUserQuestion + tool_input.questions）同步发出，
+            // Hopet 据 tool_name 归一为 askUser、复用现有答题卡，并经 updatedInput.answers 同步回包，
+            // 与 Claude 的 AskUserQuestion 完全一条路径、零特殊适配。
+            "Elicitation": [
+                entry("\(emitPath) --tool hope-agent --event permission_ask")
+            ],
+            // 在别处（hope-agent GUI / IM）作答时清掉气泡上的待答卡。
+            "ElicitationResult": [
+                entry("\(emitPath) --tool hope-agent --event ask_user_resolved")
+            ]
+        ]
+    }
+
     /// 区分 "Hopet 写的" 与 "用户写的" 的标记字符串。卸载时用它筛选 hopet-emit 命令。
     static let hopetMarker = "/.hopet/bin/hopet-emit"
 

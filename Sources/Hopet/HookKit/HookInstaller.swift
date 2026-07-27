@@ -1,6 +1,7 @@
 import Foundation
 
-/// 把 Hopet 的 hook 注册项 merge 到用户 `~/.claude/settings.json` 与 `~/.codex/config.toml`。
+/// 把 Hopet 的 hook 注册项 merge 到用户 `~/.claude/settings.json`、`~/.codex/hooks.json`
+/// 与 `~/.hope-agent/config.json`（hope-agent 的 hooks 与 Claude 同构，落在 `hooks` 字段）。
 public final class HookInstaller {
     public init() {}
 
@@ -12,6 +13,15 @@ public final class HookInstaller {
     private var codexHooksFile: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".codex/hooks.json")
+    }
+
+    /// Hope Agent 的主配置文件；hooks 落在它的 `hooks` 字段（结构与 Claude 同构）。
+    /// 它同时承载 hope-agent 自己的 providers / 偏好等，所以 merge 必须只动 `hooks`、
+    /// 保留其余字段；且**仅在文件已存在时**才写——hope-agent 没装就跳过，绝不创建一份
+    /// 只有 hooks 的残缺 config。
+    private var hopeAgentConfig: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".hope-agent/config.json")
     }
 
     /// 仅在 install/uninstall 时用于清理历史 `[notify]` 块；不再作为事件源。
@@ -36,6 +46,11 @@ public final class HookInstaller {
             guard let json = try? readCodexHooks(),
                   let hooks = json["hooks"] as? [String: Any] else { return false }
             return containsHopetMarker(in: hooks)
+        case .hopeAgent:
+            // 文件不存在 → readHopeAgentConfig 返回 [:]，hooks 取不到 → 未安装。
+            guard let json = try? readHopeAgentConfig(),
+                  let hooks = json["hooks"] as? [String: Any] else { return false }
+            return containsHopetMarker(in: hooks)
         case .custom:
             return false
         }
@@ -47,6 +62,7 @@ public final class HookInstaller {
         switch tool {
         case .claudeCode: return try installClaude()
         case .codex:      return try installCodex()
+        case .hopeAgent:  return try installHopeAgent()
         case .custom:     throw NSError(domain: "Hopet.Hook", code: 2,
                                         userInfo: [NSLocalizedDescriptionKey: "custom tool not supported in v0.1"])
         }
@@ -57,6 +73,7 @@ public final class HookInstaller {
         switch tool {
         case .claudeCode: return try uninstallClaude()
         case .codex:      return try uninstallCodex()
+        case .hopeAgent:  return try uninstallHopeAgent()
         case .custom:     return codexHooksFile
         }
     }
@@ -227,6 +244,71 @@ public final class HookInstaller {
             if !inside { out.append(line) }
         }
         return out.joined(separator: "\n")
+    }
+
+    // MARK: - Hope Agent
+    //
+    // hope-agent 的 hooks 与 Claude 同构，落在 `~/.hope-agent/config.json` 的 `hooks`
+    // 字段。差别只有两点：(1) config.json 还承载 hope-agent 自己的 providers / 偏好，
+    // 故只动 `hooks`、保留其余字段，且卸载清空后也绝不删整个文件；(2) 仅当文件已存在
+    // （即 hope-agent 已安装）时才写——不存在就跳过，不创建残缺 config。
+
+    private func installHopeAgent() throws -> URL {
+        // hope-agent 未安装（config.json 不存在）→ no-op。首启自动安装会对所有 recognized
+        // 工具调 install()，这里静默跳过不影响其它工具。
+        guard FileManager.default.fileExists(atPath: hopeAgentConfig.path) else {
+            HopetLog.info("hope-agent config not found, skip hook install: \(hopeAgentConfig.path)")
+            return hopeAgentConfig
+        }
+        var json = (try? readHopeAgentConfig()) ?? [:]
+        try backup(hopeAgentConfig)
+
+        var hooks = (json["hooks"] as? [String: Any]) ?? [:]
+        let hopetEntries = HookScriptTemplates.hopeAgentHooks(emitPath: emitPath)
+        for (key, hopetItems) in hopetEntries {
+            var existing = (hooks[key] as? [Any]) ?? []
+            existing = existing.filter { !isHopetEntry($0) }
+            existing.append(contentsOf: hopetItems)
+            hooks[key] = existing
+        }
+        json["hooks"] = hooks
+
+        let data = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: hopeAgentConfig, options: .atomic)
+        return hopeAgentConfig
+    }
+
+    private func uninstallHopeAgent() throws -> URL {
+        guard var json = try? readHopeAgentConfig(),
+              var hooks = json["hooks"] as? [String: Any] else {
+            return hopeAgentConfig
+        }
+        try backup(hopeAgentConfig)
+        for (key, value) in hooks {
+            guard let arr = value as? [Any] else { continue }
+            let filtered = arr.filter { !isHopetEntry($0) }
+            if filtered.isEmpty {
+                hooks.removeValue(forKey: key)
+            } else {
+                hooks[key] = filtered
+            }
+        }
+        // hooks 清空后移除 `hooks` 键，但绝不删整个 config.json——它还装着 hope-agent
+        // 自己的配置（与 Codex 卸载时可删空 hooks.json 的语义不同）。
+        if hooks.isEmpty {
+            json.removeValue(forKey: "hooks")
+        } else {
+            json["hooks"] = hooks
+        }
+        let data = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: hopeAgentConfig, options: .atomic)
+        return hopeAgentConfig
+    }
+
+    private func readHopeAgentConfig() throws -> [String: Any] {
+        guard let data = try? Data(contentsOf: hopeAgentConfig), !data.isEmpty else { return [:] }
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+        return json
     }
 
     // MARK: - Common

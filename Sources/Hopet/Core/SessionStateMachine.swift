@@ -17,8 +17,14 @@ public enum SessionStateMachine {
         case (.responding, .thinkingStart):
             return .thinking
 
-        // pre_tool_use：responding / thinking → toolUse
-        case (.responding, .preToolUse), (.thinking, .preToolUse), (.idle, .preToolUse):
+        // pre_tool_use：responding / thinking / idle → toolUse。permissionPrompt → toolUse
+        // 是审批通过后 PermissionPrompter 乐观切到"工具执行中"的合成事件：hope-agent 的
+        // pre_tool_use 在审批之前就发过、被 permissionPrompt 盖掉，审批后没有第二个
+        // pre_tool_use，靠这条让 toolUse 覆盖真正的执行窗口（等真 post_tool_use 再回
+        // responding），与 Claude（permission 先于 PreToolUse）的观感一致。审批门会阻塞工具
+        // 执行，所以真实 pre_tool_use 不会在 permissionPrompt 期间到达，这条只服务于合成事件。
+        case (.responding, .preToolUse), (.thinking, .preToolUse), (.idle, .preToolUse),
+             (.permissionPrompt, .preToolUse):
             return .toolUse
 
         // post_tool_use：toolUse / permissionPrompt → responding

@@ -31,8 +31,8 @@
 ## About
 
 Hopet is a desktop AI coding companion for macOS that turns the live
-session state of Claude Code / Codex CLI into something you can actually
-see: thinking, calling tools, awaiting confirmation, requesting
+session state of Claude Code / Codex CLI and other AI agents into
+something you can actually see: thinking, calling tools, awaiting confirmation, requesting
 permission, completing, or failing — every transition is expressed
 through pet animations, inline bubbles, and the menu-bar indicator.
 
@@ -51,21 +51,23 @@ with a name and eight GIFs.
 
 ## Supported AI tools
 
-Hopet works through the lifecycle hooks of the agent CLIs, so the
-following four entry points are covered:
+Hopet works through the lifecycle hooks of the agents, so the
+following five entry points are covered:
 
 - **Claude Code** — the `claude` CLI in any terminal
 - **Claude Code for VS Code** — the official VS Code extension
 - **Codex CLI** — the `codex` CLI in any terminal
 - **Codex VS Code Extension** — the official VS Code extension
+- **Other compatible platforms** — local AI agents shipping a hooks system
+  field-aligned to the Claude Code protocol
 
-Because everything runs through the same `~/.claude/settings.json` and
-`~/.codex/hooks.json` hooks, the host on top doesn't matter: Apple
-Terminal, iTerm2, Ghostty, Warp, the embedded terminal of VS Code or
-Cursor — they all behave the same.
+Because everything runs through the same `~/.claude/settings.json`,
+`~/.codex/hooks.json`, and similar hook configs, the host on top doesn't
+matter: Apple Terminal, iTerm2, Ghostty, Warp, the embedded terminal of
+VS Code or Cursor — they all behave the same.
 
-Not supported: the browser version of Claude at claude.ai, and any
-agent that isn't Claude Code or Codex (GitHub Copilot Chat, Gemini CLI,
+Not supported: the browser version of Claude at claude.ai, and any agent
+that exposes no such lifecycle hooks (GitHub Copilot Chat, Gemini CLI,
 Aider, etc.).
 
 ## Features
@@ -85,9 +87,9 @@ Aider, etc.).
 
 ### Hook integration
 
-- **One-click install / uninstall** for both Claude Code and Codex CLI hook
-  settings, performed via safe JSON merge so your existing hooks are kept
-  intact
+- **One-click install / uninstall** for Claude Code, Codex CLI, and other
+  compatible platforms' hook settings, performed via safe JSON merge so
+  your existing hooks are kept intact
 - **Unix Domain Socket IPC** with length-prefixed JSON framing for every
   event delivered from the CLI helper into the app
 - **`hopet-emit` CLI helper** with full flag support (`--require`,

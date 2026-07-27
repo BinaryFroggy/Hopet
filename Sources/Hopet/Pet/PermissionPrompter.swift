@@ -30,8 +30,13 @@ public final class PermissionPrompter {
         }
 
         let toolName = event.stringValue(forKey: "tool_name") ?? "Unknown"
-        let command  = event.stringValue(forKey: "tool_input.command")
+        let rawCommand = event.stringValue(forKey: "tool_input.command")
         let filePath = event.stringValue(forKey: "tool_input.file_path")
+        // 既无 shell `command` 又无 `file_path` 的工具（mac_control / browser / image_generate /
+        // MCP 等）否则卡片只剩工具名、没有任何"做什么"的细节。回退成 tool_input 的精简摘要，让用户
+        // 至少看到关键参数。PendingPermission.command 是"展示用的细节"字段（纯渲染、不参与决策/匹配），
+        // 放摘要不违和；filePath 仍优先，所以 write/edit/read 不受影响。两张卡（气泡 + notch）共用此字段。
+        let command = rawCommand ?? (filePath == nil ? toolInputSummary(event) : nil)
         // ExitPlanMode 走通用 permission_ask hook，但 tool_input 里挂的是整段 plan markdown。
         // trim + 截断在这里完成一次：气泡侧 1Hz 重渲染下避免反复扫描多 KB 文本，
         // 同时 16 KiB 上限保护异常长度的 payload（IPC 帧本身有 1 MiB 上限，但展示框装不下）。
@@ -106,17 +111,20 @@ public final class PermissionPrompter {
         let sid = sessionId.hopetShortId
         let rid = requestId.hopetShortId
         guard let reply = pending.removeValue(forKey: requestId) else {
-            // 已经超时被 socket 兜底关闭；只清 UI 即可。
+            // 已经超时被 socket 兜底关闭；只清 UI 即可。没有工具会跑，回 responding。
             HopetLog.trace("resolve", "STALE sid=\(sid) reqId=\(rid) decision=\(decision)")
             registry.patch(sessionId) { s in
                 if s.pendingPermission?.requestId == requestId {
                     s.pendingPermission = nil
                 }
             }
-            advancePastPermission(sessionId: sessionId)
+            advancePastPermission(sessionId: sessionId, approved: false)
             return
         }
         HopetLog.trace("resolve", "sid=\(sid) reqId=\(rid) decision=\(decision)")
+        // 是否 plan-approval —— 必须在下面清掉 pendingPermission 之前抓。plan-approval 通过后
+        // 不跑工具，不能乐观切 toolUse。
+        let wasPlanApproval = registry.session(sessionId)?.pendingPermission?.isPlanApproval ?? false
         let payload = PermissionResponse(requestId: requestId, decision: decision, reason: reason)
         reply(encodeResponse(payload))
 
@@ -125,16 +133,22 @@ public final class PermissionPrompter {
                 s.pendingPermission = nil
             }
         }
-        advancePastPermission(sessionId: sessionId)
+        advancePastPermission(sessionId: sessionId, approved: decision == "allow" && !wasPlanApproval)
     }
 
-    /// 用户在气泡上落决策即视为权限交互结束，乐观把 permissionPrompt → responding，让动画立刻恢复。
-    /// 不等 Claude 远端的 PostToolUse —— deny 路径上宿主 hook 行为不一致，allow 路径下 PostToolUse
-    /// 也可能晚来；状态机里 (.responding, .postToolUse) → nil 保证后续真帧到达时幂等不抖动。
+    /// 用户在气泡上落决策即视为权限交互结束，乐观推进状态机，不等远端真帧。
+    /// - `approved == true`（放行且会真跑工具）：合成 `.preToolUse` → toolUse，让 toolUse 覆盖
+    ///   "审批后→工具执行完"的真正执行窗口。hope-agent 的 pre_tool_use 在审批前就发过、被
+    ///   permissionPrompt 盖掉，审批后没有第二个，靠这条对齐 Claude 的 toolUse 观感；等真
+    ///   `post_tool_use` 回来时 (.toolUse, .postToolUse) → responding 收尾。
+    /// - `approved == false`（拒绝 / plan-approval / stale）：`.postToolUse` → responding，没有
+    ///   工具会跑。
+    /// 两条路径下状态机里 (.responding, .postToolUse) → nil 都保证后续真帧到达时幂等不抖动。
     /// 与 resolveAskUser 的乐观切回 askUserResolved 设计平行。
-    private func advancePastPermission(sessionId: String) {
-        guard let session = registry.session(sessionId),
-              let next = SessionStateMachine.nextState(from: session.currentState, event: .postToolUse) else {
+    private func advancePastPermission(sessionId: String, approved: Bool) {
+        guard let session = registry.session(sessionId) else { return }
+        let event: EventKind = approved ? .preToolUse : .postToolUse
+        guard let next = SessionStateMachine.nextState(from: session.currentState, event: event) else {
             return
         }
         registry.transition(sessionId: sessionId, to: next)
@@ -266,6 +280,30 @@ public final class PermissionPrompter {
         var dict = (try? JSONSerialization.jsonObject(with: originalJSON) as? [String: Any]) ?? [:]
         dict["answers"] = answers
         return dict
+    }
+
+    /// 给"既无 command 又无 file_path"的工具(mac_control / browser / image_generate / MCP 等)
+    /// 生成一行可一眼看懂的 tool_input 摘要：丢掉空字符串 / 0 / false / null / 空容器这些默认值，
+    /// 只留有意义的参数,再压成 compact JSON。NSNumber 统一用 `doubleValue != 0` 过滤——同时干掉
+    /// `0` 和 `false`,绕开 Swift 里 Bool/Number 桥接的老坑。全是默认值时返回 nil(气泡就只显示工具名)。
+    private func toolInputSummary(_ event: StateEvent) -> String? {
+        guard let dict = event.anyValue(forKey: "tool_input") as? [String: Any] else { return nil }
+        var kept: [String: Any] = [:]
+        for (k, v) in dict {
+            switch v {
+            case let s as String where !s.isEmpty: kept[k] = s
+            case let n as NSNumber where n.doubleValue != 0: kept[k] = n  // 同时丢 0 和 false
+            case let arr as [Any] where !arr.isEmpty: kept[k] = arr
+            case let d as [String: Any] where !d.isEmpty: kept[k] = d
+            default: break  // 空串 / 0 / false / null / 空容器 / 未知 → 丢
+            }
+        }
+        guard !kept.isEmpty,
+              let data = try? JSONSerialization.data(withJSONObject: kept, options: [.sortedKeys]),
+              let json = String(data: data, encoding: .utf8) else { return nil }
+        // 上限兜底:摘要本身压成 compact 已很短,但仍给个上界避免异常长 payload 撑爆展示块
+        // (视图侧还有 lineLimit 二次截断)。
+        return json.count > 500 ? String(json.prefix(500)) : json
     }
 
     /// 解析 tool_input.questions 数组，与 clawd-on-desk 的 elicitation schema 对齐。

@@ -200,6 +200,27 @@ public final class EventRouter {
     // MARK: -
 
     private func handleSessionStart(_ event: StateEvent) {
+        // user_prompt / pre_tool_use can legitimately arrive BEFORE session_start:
+        // Hope Agent fires UserPromptSubmit in its preflight, then SessionStart
+        // once the engine turn starts (Claude/Codex fire SessionStart first, so
+        // this only bites a tool whose hooks land out of that order). The
+        // cold-start path in handleStateEvent already created the session and
+        // advanced it to responding/toolUse — re-upserting a fresh idle here
+        // would blank that in-flight state and the pet would sit at idle until
+        // the next event. So for an already-tracked session, only refresh
+        // metadata + prune stale peers; never reset its state.
+        if registry.session(event.sessionId) != nil {
+            registry.patch(event.sessionId) { s in
+                if let cwd = event.cwd { s.cwd = cwd }
+                if let app = event.terminalApp { s.terminalApp = app }
+                if let tty = event.terminalTty { s.terminalTty = tty }
+                if let tsid = event.terminalSessionId { s.terminalSessionId = tsid }
+            }
+            if let existing = registry.session(event.sessionId) {
+                pruneStaleSiblings(of: existing)
+            }
+            return
+        }
         let session = Session(
             id: event.sessionId,
             tool: event.tool,
